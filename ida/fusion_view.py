@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QTabWidget, QSpacerItem, QSizePolicy, QGridLayout, Q
 from idaapi import PluginForm
 
 from fusion_ui.editor import *
+from ida.function_retriever import FunctionRetriever
 from menu import *
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPixmap
@@ -36,7 +37,7 @@ class ShowFusion(ActionHandler):
         if tform:
             idaapi.activate_widget(tform, True)
         else:
-            FusionViewer(config.function_retriever.fetch_function_tree(func.start_ea)).Show()
+            FusionViewer(FunctionRetriever.fetch_function_tree(func.start_ea)).Show()
 
 
 class QtViewer(PluginForm):

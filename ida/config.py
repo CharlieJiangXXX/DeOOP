@@ -14,6 +14,4 @@ OPENAI_API_KEY = ""
 # Such as: OPENAI_PROXY = http://127.0.0.1:7890
 OPENAI_PROXY = ""
 
-function_retriever = None
-
 llm = None

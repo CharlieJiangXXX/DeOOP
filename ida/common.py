@@ -3,4 +3,4 @@ import os
 
 def concat(*args):
     assert args
-    return os.path.join(*args).replace("\\","/")
+    return os.path.join(*args).replace("\\", "/")

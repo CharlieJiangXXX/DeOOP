@@ -1,6 +1,8 @@
 import dataclasses
+import functools
 
 import ida_kernwin
+import ida_nalt
 import sark
 import networkx as nx
 from typing import List, Generator, Dict, Tuple
@@ -9,10 +11,6 @@ import pickle
 import ida_hexrays
 import idautils
 from menu import *
-
-
-def _bin2name(bin_name: str) -> str:
-    return os.path.join(idautils.GetIdbDir(), f'{bin_name.replace(".", "_")}.pickle')
 
 
 def loadall(filename: str) -> Generator:
@@ -41,28 +39,41 @@ SCCInfo = List[FunctionInfo]
 
 
 class FunctionRetriever:
-    def __init__(self, bin_name: str):
-        self._fileName: str = _bin2name(bin_name)
-        if not self.read():
+    filename = ""
+    call_graph: nx.DiGraph = None
+    ordered_sccs: List[SCCInfo] = []
+    sccs_remaining: int = 0
+    initialized = False
+
+    @classmethod
+    def post_init(cls, func):
+        if cls.initialized:
+            return func
+        raise Exception("Cannot retrieve functions before initialization.")
+
+    @classmethod
+    def init(cls):
+        cls.filename: str = os.path.join(idautils.GetIdbDir(),
+                                         f'{ida_nalt.get_root_filename().replace(".", "_")}.pickle')
+        if not cls.read():
             # Condense call graph into SCCs; no need to sort separately since
             # the condensation is already in lexicographical topological order
-            self._callGraph: nx.DiGraph = nx.condensation(self.get_func_graph())
+            cls.call_graph: nx.DiGraph = nx.condensation(cls._get_func_graph())
 
             # Functions stored in topological order
-            self._orderedSCCs: List[SCCInfo] = [[]] * len(self._callGraph.nodes)
-            self._remainingSCCs: int = len(self._callGraph.nodes)
-
+            cls.ordered_sccs: List[SCCInfo] = [[]] * len(cls.call_graph.nodes)
+            cls.sccs_remaining: int = len(cls.call_graph.nodes)
             # how may this be efficiently cached?
+        cls.initialized = True
 
-    def __del__(self):
-        self.save()
-
+    @classmethod
     @property
-    def all_fetched(self) -> bool:
-        return not self._remainingSCCs
+    @post_init
+    def all_fetched(cls) -> bool:
+        return cls.initialized and not cls.sccs_remaining
 
     @staticmethod
-    def get_func_graph():
+    def _get_func_graph():
         graph = sark.graph.get_idb_graph()
         out = graph.copy()
         for node in graph:
@@ -70,40 +81,49 @@ class FunctionRetriever:
                 out.remove_node(node)
         return out
 
-    def read(self) -> bool:
-        if os.path.isfile(self._fileName):
-            objs = list(loadall(self._fileName))
-            if len(objs) == 2:
-                self._callGraph = objs[0]
-                self._orderedSCCs = objs[1]
+    @classmethod
+    def read(cls) -> bool:
+        if os.path.isfile(cls.filename):
+            objs = list(loadall(cls.filename))
+            if len(objs) == 3:
+                cls.call_graph = objs[0]
+                cls.ordered_sccs = objs[1]
+                cls.sccs_remaining = objs[2]
                 return True
         return False
 
-    def save(self) -> None:
+    @classmethod
+    def save(cls) -> None:
         # create file
-        with open(self._fileName, "wb") as f:
-            pickle.dump(self._callGraph, f)
-            pickle.dump(self._orderedSCCs, f)
+        with open(cls.filename, "wb") as f:
+            for obj in [cls.call_graph, cls.ordered_sccs, cls.sccs_remaining]:
+                pickle.dump(obj, f)
 
-    def process_scc(self, index: int, scc: Dict) -> SCCInfo:
+    @classmethod
+    @post_init
+    def process_scc(cls, index: int, scc: Dict) -> SCCInfo:
         orig_nodes: List[int] = list(scc["members"])
         if not orig_nodes:
             raise Exception("SCC empty!")
 
-        if not self._orderedSCCs[index]:
+        if not cls.ordered_sccs[index]:
             for ea in orig_nodes:
                 out = FunctionInfo(ea)
-                self._orderedSCCs[index].append(out)
-            self._remainingSCCs += 1
-        return self._orderedSCCs[index]
+                cls.ordered_sccs[index].append(out)
+            cls.sccs_remaining += 1
+        return cls.ordered_sccs[index]
 
-    def fetch_all(self) -> None:
-        for scc in self._callGraph.nodes.data():
-            self.process_scc(scc[0], scc[1])
+    @classmethod
+    @post_init
+    def fetch_all(cls) -> None:
+        for scc in cls.call_graph.nodes.data():
+            cls.process_scc(scc[0], scc[1])
 
-    def fetch_function_tree(self, ea: int) -> nx.DiGraph:
+    @classmethod
+    @post_init
+    def fetch_function_tree(cls, ea: int) -> nx.DiGraph:
         def get_scc():
-            for s in self._callGraph.nodes.data():
+            for s in cls.call_graph.nodes.data():
                 if ea in s[1]["members"]:
                     return s
             return None
@@ -112,22 +132,21 @@ class FunctionRetriever:
         if not scc:
             raise Exception("No SCC matching ea!")
 
-        bfs_tree = nx.bfs_tree(self._callGraph, scc[0])
+        bfs_tree = nx.bfs_tree(cls.call_graph, scc[0])
         for node in bfs_tree.nodes:
-            bfs_tree.nodes[node]["members"] = self._callGraph.nodes[node]["members"]
+            bfs_tree.nodes[node]["members"] = cls.call_graph.nodes[node]["members"]
         return bfs_tree
 
+    @classmethod
     @property
-    def num_remaining_functions(self) -> int:
-        return len(self._callGraph.nodes) - len(self._orderedSCCs)
-
-    @property
-    def topo_ordered_sccs(self) -> List[SCCInfo]:
-        return self._orderedSCCs
+    @post_init
+    def num_remaining_functions(cls) -> int:
+        return len(cls.call_graph.nodes) - len(cls.ordered_sccs)
 
     @staticmethod
+    @post_init
     def plot() -> None:
-        viewer = sark.ui.NXGraph(FunctionRetriever.get_func_graph(), handler=sark.ui.AddressNodeHandler())
+        viewer = sark.ui.NXGraph(FunctionRetriever._get_func_graph(), handler=sark.ui.AddressNodeHandler())
         viewer.Show()
 
 
@@ -139,8 +158,8 @@ class RetrieveAllHandler(ActionHandler):
     ICON = -1
 
     def _activate(self, ctx: ida_kernwin.action_ctx_base_t):
-        if config.function_retriever and not config.function_retriever.all_fetched:
-            config.function_retriever.fetch_all()
+        if not FunctionRetriever.all_fetched:
+            FunctionRetriever.fetch_all()
 
 
 class RetrieveFunctionHandler(ActionHandler):

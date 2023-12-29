@@ -88,11 +88,12 @@ class DeOOPPlugin(idaapi.plugin_t):
         # export file(s) & debug symbols - File/CreateFile
 
         # grab vtables
-        config.function_retriever = FunctionRetriever(ida_nalt.get_input_file_path())
+        FunctionRetriever.init()
 
         return idaapi.PLUGIN_KEEP
 
     def term(self):
+        FunctionRetriever.save()
         self._manager.detach()
 
 
