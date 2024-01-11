@@ -1,6 +1,7 @@
 import itertools
 import os.path
 import asyncio
+import platform
 import subprocess
 import threading
 from enum import Enum
@@ -8,7 +9,6 @@ from types import TracebackType
 from typing import List, Optional, Callable, Any, Dict, Type
 import tempfile
 import dill
-import platform
 
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
@@ -97,18 +97,11 @@ class Launcher:
                     with tempfile.TemporaryFile(delete=False) as tmp_file:
                         os.environ["TVHEADLESS"] = str(1)
 
+                        launcher_dir = os.path.dirname(os.path.realpath(__file__))
                         subprocess.Popen(
-                            [path, '-A', f"-S{quote_spaces_in_path(os.path.abspath('_ida_session.py'))}",
+                            [path, '-A', f"-S{quote_spaces_in_path(os.path.join(launcher_dir, '_ida_session.py'))}",
                              f"-L{tmp_file.name}", binary],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-
-                        """
-                        script = 'C:\\Users\\Charlie Jiang.vv001\\Desktop\\test\\run.py'
-                        subprocess.Popen(
-                            [path, '-A', '-B', f"-S{quote_spaces_in_path(os.path.abspath(script))}",
-                             f"-L{tmp_file.name}", binary],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-                        """
 
                         self._tmpFiles[handle] = tmp_file.name
 
@@ -162,4 +155,3 @@ class Launcher:
                     print(f"[IDAStreamer-{handle}] {line.rstrip()}")
 
         threading.Thread(target=run, daemon=False).start()
-

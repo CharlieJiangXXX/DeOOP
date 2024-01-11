@@ -5,13 +5,12 @@ import platform
 
 def list_functions():
     import idautils
-    functions = idautils.Functions()
+    #functions = idautils.Functions()
     # for function in functions:
     #    function_name = ida_funcs.get_func_name(function)
     #    function_address = ida_funcs.get_func(function).start_ea
     #    print(f"{function_name}: {hex(function_address)}")
-    return functions
-
+    return idautils.GetIdbDir()
 
 async def main():
     # program flow:
@@ -29,7 +28,6 @@ async def main():
         launcher.execute_cmd(handle, "print('here we go')")
         launcher.stream_ida_logs(handle)
         print(await future)
-
 
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
