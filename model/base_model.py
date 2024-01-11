@@ -9,6 +9,18 @@ FunctionSegmenter = Callable[[str], List[str]]
 SegmentMerger = Callable[[List[str]], str]
 OutputVerifier = Callable[[str], (bool, str)]
 
+# scc: [a, b, c] (a, b) (a, c) (c, a)
+
+"""
+extern int c(arg1, arg2)
+
+def a:
+    c()
+    
+    
+def c:
+    a()
+"""
 
 def default_function_segmenter(function: str) -> List[str]:
     return [function]
@@ -38,6 +50,7 @@ class Query:
     system: List[str]
     prompt: str
     data: str
+    errors: List[str] = []  # errors or diffs
     top_p: float = 0.1
     temperature: float = 0.2
     parallel_cnt: int = 1

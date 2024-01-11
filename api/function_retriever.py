@@ -1,25 +1,16 @@
 import dataclasses
-import functools
 
 import ida_kernwin
 import ida_nalt
 import sark
 import networkx as nx
-from typing import List, Generator, Dict, Tuple
-import os
 import pickle
 import ida_hexrays
 import idautils
-from menu import *
+from trash.menu import *
 
 
-def loadall(filename: str) -> Generator:
-    with open(filename, "rb") as f:
-        while True:
-            try:
-                yield pickle.load(f)
-            except EOFError:
-                break
+
 
 
 @dataclasses.dataclass

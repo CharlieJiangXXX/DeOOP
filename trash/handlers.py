@@ -140,7 +140,7 @@ class RenameHandler(MenuHandler):
         replaced = []
         for n in names:
             if idaapi.IDA_SDK_VERSION < 760:
-                lvars = {lvar.name: lvar for lvar in view.cfunc.lvars}
+                lvars = {lvar.id: lvar for lvar in view.cfunc.lvars}
                 if n in lvars:
                     if view.rename_lvar(lvars[n], names[n], True):
                         replaced.append(n)

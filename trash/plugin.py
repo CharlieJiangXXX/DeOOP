@@ -1,5 +1,3 @@
-import ida_nalt
-
 from function_retriever import *
 from fusion_view import *
 
@@ -9,6 +7,7 @@ from sark import *
 
 import config
 from common import concat
+from model.compiler_explorer import CompilerManager
 
 
 class DummyHandler(ActionHandler):
@@ -75,6 +74,9 @@ class DeOOPPlugin(idaapi.plugin_t):
         self._manager = GenericMenuManager()
         self._manager.add_handlers(concat("Edit", config.PRETTY_NAME), [RetrieveAllHandler])
         self._manager.add_handlers(concat("View", "Open subviews"), [ShowFusion])
+
+        self._compiler = CompilerManager(["c", "c++"])
+
 
         # set compiler - options
         # view current headers (allow edit) - view/OpenSubviews

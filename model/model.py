@@ -4,6 +4,8 @@ from typing import List, Dict
 from base_model import *
 import asyncio
 
+from model.gpt import OpenAIGPT
+
 QueryCompleteCallback = Callable[[List[str]], None]
 
 
@@ -38,11 +40,12 @@ class LanguageModel:
     id_counter = itertools.count(0)
 
     def __init__(self, models: List[BaseModel]) -> None:
-        self._models = models
+        if models:
+            self._models = models
 
-    def query(self, handler: Callable[[List[str]]], model: BaseModel, query: Query) -> None:
-        if model not in self._models:
-            raise ValueError("Model unsupported!")
+    def query(self, query: Query, handler: QueryCompleteCallback, model: Optional[BaseModel] = None) -> None:
+        if not model or model not in self._models:
+            model = self._models[0]
 
         query.id = next(self.id_counter)
         model.enqueue_query(query)
