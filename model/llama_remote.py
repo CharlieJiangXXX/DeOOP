@@ -1,4 +1,4 @@
-from llama import *
+from .llama import *
 
 
 class CodeLlamaRemote(CodeLlama):

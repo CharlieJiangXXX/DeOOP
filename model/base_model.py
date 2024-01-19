@@ -1,13 +1,11 @@
 import dataclasses
 from abc import ABC, abstractmethod
-from typing import List, Callable, Optional
-from pydispatch import dispatcher
+from typing import List, Callable, Tuple
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
 FunctionSegmenter = Callable[[str], List[str]]
 SegmentMerger = Callable[[List[str]], str]
-OutputVerifier = Callable[[str], (bool, str)]
+OutputVerifier = Callable[[str], Tuple[bool, str]]
 
 # scc: [a, b, c] (a, b) (a, c) (c, a)
 
@@ -46,11 +44,10 @@ class Query:
     this would be processed as a user prompt, it differs in that it may be segmented in case of
     length excess.
     """
-    id: int
     system: List[str]
     prompt: str
     data: str
-    errors: List[str] = []  # errors or diffs
+    errors: List[str]  # errors or diffs
     top_p: float = 0.1
     temperature: float = 0.2
     parallel_cnt: int = 1
@@ -74,9 +71,8 @@ class BaseModel(ABC):
         self._processQueue = asyncio.Queue()
         self._semaphore = asyncio.Semaphore(self.max_concurrent_queries)
         self._tempResponses = {}
-        loop = asyncio.get_event_loop()
-        workers = [self.worker() for _ in range(self.max_concurrent_queries)]
-        loop.run_until_complete(asyncio.gather(*workers))
+        for _ in range(self.max_concurrent_queries):
+            asyncio.create_task(self.worker())
 
     @property
     def max_tokens_supported(self) -> int:
@@ -94,14 +90,14 @@ class BaseModel(ABC):
     def num_tokens(self, query: str) -> int:
         return len(query)
 
-    def _query(self, query: Query) -> str:
+    def __query(self, query: Query) -> str:
         while True:
             # In addition to the length of the prompts, we predict those of outputs and aggregate them
             max_tokens_for_func = self.max_tokens_supported - (sum(self.num_tokens(s) for s in query.system)
                                                                - self.num_tokens(query.prompt))
 
             def over(dat: str) -> bool:
-                return max_tokens_for_func > self.num_tokens(dat) * (1 + self.DATA_SCALE_FACTOR)
+                return max_tokens_for_func < self.num_tokens(dat) * (1 + self.DATA_SCALE_FACTOR)
 
             segs = []
 
@@ -114,22 +110,23 @@ class BaseModel(ABC):
 
             split(query.data)
             res, out = query.output_verifier(
-                query.segment_merger([self.__query(query.system, query.prompt, d, query.top_p,
-                                                   query.temperature) for d in segs]))
+                query.segment_merger([self._query(query.system, query.prompt, d, query.top_p,
+                                                  query.temperature) for d in segs]))
             if res:
                 return out
 
     @abstractmethod
-    def __query(self, system: List[str], prompt: str, data: str, top_p: float, temperature: float) -> str:
+    def _query(self, system: List[str], prompt: str, data: str, top_p: float, temperature: float) -> str:
         """
         Sends generic queries to the current model, returning a tuple of the prompts and results.
         :returns: The model's response to the queries.
         """
         raise NotImplementedError
 
-    def enqueue_query(self, query: Query) -> None:
+    def enqueue_query(self, identifier: int, query: Query) -> asyncio.Future:
         """
         Enqueues queries to be run concurrently.
+        :param identifier:
         :param query: A list of queries, each with unique IDs. Set ``parallel_cnt`` should a query
          be run more than once.
         :param function_segmenter: A callable to break a function into segments. Must support recursive
@@ -140,22 +137,24 @@ class BaseModel(ABC):
         If so, return True, as well as the output with minor modifications if needed.
         :return:
         """
+        future = asyncio.Future()
         for _ in range(query.parallel_cnt):
             query.parallel_cnt -= 1
-            self._processQueue.put_nowait(query)
+            self._processQueue.put_nowait((identifier, query, None if query.parallel_cnt else future))
+        return future
 
-    def process_query(self, query: Query) -> None:
-        if query.id not in self._tempResponses:
-            self._tempResponses[query.id] = []
-        else:
-            self._tempResponses[query.id].append(self._query(query))
+    def process_query(self, identifier: int, query: Query, future: asyncio.Future) -> None:
+        print("process")
+        if identifier not in self._tempResponses:
+            self._tempResponses[identifier] = []
+        self._tempResponses[identifier].append(self.__query(query))
         if not query.parallel_cnt:
-            dispatcher.send(signal=query.id, sender=self.name, data=self._tempResponses[query.id])
-            self._tempResponses.pop(query.id)
+            future and future.set_result(self._tempResponses[identifier])
+            self._tempResponses.pop(identifier)
 
     async def worker(self):
+        print("working")
         while True:
             async with self._semaphore:
-                query = await self._processQueue.get()
-                self.process_query(query)
+                self.process_query(*await self._processQueue.get())
                 self._processQueue.task_done()

@@ -1,10 +1,7 @@
 import itertools
-import time
-from typing import List, Dict
-from base_model import *
-import asyncio
+from typing import Dict, Optional
 
-from model.gpt import OpenAIGPT
+from .base_model import *
 
 QueryCompleteCallback = Callable[[List[str]], None]
 
@@ -40,16 +37,15 @@ class LanguageModel:
     id_counter = itertools.count(0)
 
     def __init__(self, models: List[BaseModel]) -> None:
-        if models:
-            self._models = models
+        self._models = [model for model in models if isinstance(model, BaseModel)]
 
-    def query(self, query: Query, handler: QueryCompleteCallback, model: Optional[BaseModel] = None) -> None:
+    def query(self, query: Query, handler: QueryCompleteCallback, model: Optional[BaseModel] = None) -> asyncio.Future:
         if not model or model not in self._models:
             model = self._models[0]
 
-        query.id = next(self.id_counter)
-        model.enqueue_query(query)
-        dispatcher.connect(handler, signal=query.id, sender=model.name)
+        future = model.enqueue_query(next(self.id_counter), query)
+        #future.add_done_callback(handler)
+        return future
 
     def perfect(self, callback: QueryCompleteCallback, defs: str, func: str) -> bool:
         """
@@ -192,3 +188,4 @@ class LanguageModel:
     },
         """
         pass
+

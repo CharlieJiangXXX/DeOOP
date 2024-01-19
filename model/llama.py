@@ -1,4 +1,4 @@
-from base_model import *
+from .base_model import *
 from typing import List, Literal, TypedDict
 
 import torch
@@ -74,7 +74,7 @@ class CodeLlama(BaseModel):
         input_ids = self.tokenizer(query, return_tensors="pt", add_special_tokens=False).to("cuda")["input_ids"]
         return len(input_ids[0])
 
-    def __query(self, system: List[str], prompt: str, data: str, top_p: float, temperature: float) -> str:
+    def _query(self, system: List[str], prompt: str, data: str, top_p: float, temperature: float) -> str:
         sys = "".join([B_SYS + text + E_SYS for text in system])
         full_prompt = f"<s> {(B_INST + sys + prompt + data + E_INST).strip()}"
 
