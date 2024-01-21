@@ -144,7 +144,6 @@ class BaseModel(ABC):
         return future
 
     def process_query(self, identifier: int, query: Query, future: asyncio.Future) -> None:
-        print("process")
         if identifier not in self._tempResponses:
             self._tempResponses[identifier] = []
         self._tempResponses[identifier].append(self.__query(query))
@@ -153,7 +152,6 @@ class BaseModel(ABC):
             self._tempResponses.pop(identifier)
 
     async def worker(self):
-        print("working")
         while True:
             async with self._semaphore:
                 self.process_query(*await self._processQueue.get())

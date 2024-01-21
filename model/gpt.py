@@ -1,4 +1,6 @@
-from openai import OpenAI
+import re
+
+from openai import OpenAI, BadRequestError, RateLimitError
 import tiktoken
 from .base_model import *
 
@@ -56,9 +58,23 @@ class OpenAIGPT(BaseModel):
         message = [{"role": "system", "content": prompt} for prompt in system]
         message.append({"role": "user", "content": prompt})
 
-        response = self._client.chat.completions.create(model=self.name,
-                                                        messages=message,
-                                                        temperature=temperature,
-                                                        top_p=top_p,
-                                                        max_tokens=max_new)
-        return response.choices[0].message.content
+        try:
+            response = self._client.chat.completions.create(model=self.name,
+                                                            messages=message,
+                                                            temperature=temperature,
+                                                            top_p=top_p,
+                                                            max_tokens=max_new)
+            return response.choices[0].message.content
+        except BadRequestError as e:
+            # Context length exceeded. Determine the max number of tokens we can ask for and retry.
+            m = re.search(r'maximum context length is \d+ tokens, however you requested \d+ tokens', str(e))
+            if m:
+                print("Unfortunately, this function is too big to be analyzed with the model's current API limits.")
+            else:
+                print("General exception encountered while running the query: {error}".format(error=str(e)))
+        except RateLimitError as e:
+            print("{model} could not complete the request: {error}".format(model=self._modelName, error=str(e)))
+        except Exception as e:
+            print(f"{type(e)}: {str(e)}")
+        finally:
+            return ""

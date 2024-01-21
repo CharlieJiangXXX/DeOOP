@@ -6,7 +6,7 @@ from .base_model import *
 QueryCompleteCallback = Callable[[List[str]], None]
 
 
-class LanguageModel:
+class LLMController:
     """
     Note that all feature functions could be called concurrently with the ____ decorator, and the best result among
     a few would be selected.
