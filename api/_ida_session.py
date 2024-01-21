@@ -47,12 +47,12 @@ class IDASession:
             if mode == -1:
                 out = func()
             else:
-                l = []
+                l = [None]
 
                 def wrapper():
                     try:
                         resp = func()
-                        l.append(resp)
+                        l[0] = resp
                         return 0
                     except Exception as e:
                         print(f"Error executing task: {e.__class__}: {e}")
@@ -68,7 +68,7 @@ class IDASession:
 
     @staticmethod
     def execute_cmd(cmd: str) -> Any:
-        eval(cmd)
+        exec(cmd)
 
     @staticmethod
     def execute_script(path: str, env: Dict, mode: int) -> Any:

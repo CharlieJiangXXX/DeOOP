@@ -1,3 +1,7 @@
+import os
+
+root_dir = os.path.dirname(os.path.abspath(__file__))
+
 # DeObfuscator + Optimized Perfecter
 PRETTY_NAME = "DeOOP"
 PLUGIN_NAME = "de-oop"

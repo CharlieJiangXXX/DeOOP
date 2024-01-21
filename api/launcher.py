@@ -1,7 +1,6 @@
 import itertools
 import os.path
 import asyncio
-import platform
 import subprocess
 import threading
 from enum import Enum
@@ -65,7 +64,8 @@ class Launcher:
 
     def ida_notify(self, handle: SessionHandle, task_id: TaskID, resp: Any):
         future, handler = self._pendingTasks[handle][task_id]
-        handler(resp)
+        if handler:
+            handler(resp)
         future.set_result(dill.loads(resp.data))
 
     def ida_ping(self, handle: SessionHandle, port: int):
@@ -77,6 +77,8 @@ class Launcher:
         if not cls._instance:
             cls._instance = Launcher()
         return cls._instance
+
+    # TO-DO: error handling on set path;
 
     def set_ida_path(self, path: str):
         self._paths["ida"] = path
@@ -98,6 +100,7 @@ class Launcher:
                         os.environ["TVHEADLESS"] = str(1)
 
                         launcher_dir = os.path.dirname(os.path.realpath(__file__))
+                        # try to do some error handling here to deal with duplicate instances
                         subprocess.Popen(
                             [path, '-A', f"-S{quote_spaces_in_path(os.path.join(launcher_dir, '_ida_session.py'))}",
                              f"-L{tmp_file.name}", binary],
@@ -109,10 +112,14 @@ class Launcher:
                     pass
         return handle
 
+    def decompilers_from_handle(self, handle: SessionHandle) -> List[str]:
+        return self._instances[handle].keys()
+
     def _process_task(self, handle: SessionHandle, task: Callable[[], Any] = None,
                       handler: Callable[[Any], None] = None, mode: int = TaskMode.SAFE.value,
                       cmd: str = "",
                       path: str = "", env: Dict = None) -> Any:
+        # TO-DO: add decompiler list option
         self._pingEvents[handle].wait()
         instances = self._instances[handle]
         for instance in instances:
@@ -136,7 +143,7 @@ class Launcher:
                     pass
 
     def enqueue_task(self, handle: SessionHandle, task: Callable[[], Any], handler: Callable[[Any], None] = None,
-                     mode: int = TaskMode.SAFE) -> asyncio.Future:
+                     mode: int = TaskMode.SAFE.value) -> asyncio.Future:
         return self._process_task(handle, task, handler, mode)
 
     def execute_cmd(self, handle: SessionHandle, cmd: str) -> None:
@@ -151,7 +158,11 @@ class Launcher:
 
         def run():
             with open(filename, 'r') as file:
-                while line := file.readline():
-                    print(f"[IDAStreamer-{handle}] {line.rstrip()}")
+                while True:
+                    if line := file.readline():
+                        print(f"[IDAStreamer-{handle}] {line.rstrip()}")
+                        # this is ugly af, but we can fix it later :)
+                        if "Flushing buffers" in line:
+                            break
 
         threading.Thread(target=run, daemon=False).start()
