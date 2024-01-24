@@ -40,7 +40,8 @@ class Decompiler:
         pass
 
     def test(self):
-        print(hex(self.interfaces[0].binary_base_addr()))
+        print(hex(self.interfaces[0].binary_base_addr))
+        print(self.interfaces[0].decompiler_available)
 
     def apply_patches(self, output_path: str = None):
         target = self.interface.binary_path

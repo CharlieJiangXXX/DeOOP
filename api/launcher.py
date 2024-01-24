@@ -17,14 +17,7 @@ TaskID = int
 
 
 def quote_spaces_in_path(path):
-    # Split the path into components
-    components = path.split(os.sep)
-
-    # Enclose components with spaces in quotes
-    quoted_components = [f'"{comp}"' if ' ' in comp else comp for comp in components]
-
-    # Reassemble the path with the original separator
-    return os.sep.join(quoted_components)
+    return os.sep.join(f'"{comp}"' if ' ' in comp else comp for comp in path.split(os.sep))
 
 
 class Launcher:

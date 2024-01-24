@@ -55,7 +55,7 @@ class CompilerManager:
         try:
             self.client.images.get(self.BASE_IMG_NAME)
         except ImageNotFound:
-            self.client.images.build(path="..", rm=True, tag=self.BASE_IMG_NAME)
+            self.client.images.build(path="../../model", rm=True, tag=self.BASE_IMG_NAME)
 
         try:
             self.client.volumes.get(self.BASE_IMG_NAME)

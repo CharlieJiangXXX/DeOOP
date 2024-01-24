@@ -46,4 +46,3 @@ async def main_model():
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 main()
-#asyncio.run(main())
