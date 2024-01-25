@@ -14,7 +14,6 @@ class Function(Artifact):
         "frame_size",
         "flags",
         "signature",
-        "ptr",
         "tinfo",
         "comparator",
         "pseudocode"
@@ -31,7 +30,6 @@ class Function(Artifact):
         self.frame_size = 0
         self.flags = 0
         self.signature = ""
-        self.ptr = None
         self.tinfo = None
         self.comparator: Callable[[int, int], bool] = None
 
@@ -85,7 +83,7 @@ class Function(Artifact):
         of type Address or itself be one."""
         ea = getattr(item, "addr", item)
 
-        return self.comparator(ea, self.start_addr)
+        return self.comparator(ea.value, self.start_addr)
 
     @property
     def name(self):

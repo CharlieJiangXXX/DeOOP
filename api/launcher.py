@@ -12,6 +12,8 @@ import dill
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
 
+from .utils import ExceptionWrapperProtocol
+
 SessionHandle = int
 TaskID = int
 
@@ -57,9 +59,10 @@ class Launcher:
 
     def ida_notify(self, handle: SessionHandle, task_id: TaskID, resp: Any):
         future, handler = self._pendingTasks[handle][task_id]
+        resp = dill.loads(resp.data)
         if handler:
             handler(resp)
-        future.set_result(dill.loads(resp.data))
+        future.set_result(resp)
 
     def ida_ping(self, handle: SessionHandle, port: int):
         self._instances[handle]["ida"] = port
@@ -155,7 +158,7 @@ class Launcher:
                     if line := file.readline():
                         print(f"[IDAStreamer-{handle}] {line.rstrip()}")
                         # this is ugly af, but we can fix it later :)
-                        if "Flushing buffers" in line:
+                        if "Unloading IDP module" in line:
                             break
 
         threading.Thread(target=run, daemon=False).start()

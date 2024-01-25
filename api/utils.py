@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 from .artifacts.address import Address
 
@@ -56,3 +56,11 @@ class Xref:
         self.iscode = iscode
         self.user = user
         self.type = type_
+
+
+@runtime_checkable
+class ExceptionWrapperProtocol(Protocol):
+    e: Exception
+
+    def __init__(self, e: Exception) -> None:
+        ...

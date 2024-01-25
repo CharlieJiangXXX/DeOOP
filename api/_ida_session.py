@@ -1,7 +1,5 @@
 import os
-import sys
 import threading
-import traceback
 from typing import Any, Generator, Dict
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
@@ -9,6 +7,11 @@ import dill
 
 import idaapi
 import ida_pro
+
+
+class ExceptionWrapper:
+    def __init__(self, e: Exception):
+        self.e = e
 
 
 class IDASession:
@@ -62,8 +65,8 @@ class IDASession:
             if isinstance(out, Generator):
                 out = list(out)
             self._receiverProxy.notify(self._handle, task_id, dill.dumps(out))
-        except Exception:
-            traceback.print_exc(file=sys.stdout)
+        except Exception as e:
+            self._receiverProxy.notify(self._handle, task_id, dill.dumps(ExceptionWrapper(e)))
 
     @staticmethod
     def execute_cmd(cmd: str) -> Any:

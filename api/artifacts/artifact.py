@@ -26,11 +26,11 @@ class Artifact:
     _cache = {}
 
     def __new__(cls, *args, **kwargs):
+        # TO-DO: fix me
         identifier = args[0] if args else None
         if identifier and hasattr(identifier, '__hash__') and callable(identifier.__hash__):
             if identifier not in cls._cache:
                 cls._cache[identifier] = super().__new__(cls)
-                return cls._cache[identifier]
             return cls._cache[identifier]
         return super().__new__(cls)
 

@@ -29,7 +29,9 @@ def main():
     with Launcher.instance() as launcher:
         launcher.set_ida_path("C:\\Users\\Charlie Jiang.vv001\\Downloads\\IDA Pro 8.3.2\\IDA\\ida64.exe")
         # cacheing objects like cfg should be done by session (read from file if exists)
-        session = Session("C:\\Users\\Charlie Jiang.vv001\\Desktop\\test\\mqcmiplugin.dll", ["ida"])
+        simple = "C:\\Users\\Charlie Jiang.vv001\\Downloads\\challenges-2020\\c\\baby-c\\binary.out"
+        hard = "C:\\Users\\Charlie Jiang.vv001\\Desktop\\test\\mqcmiplugin.dll"
+        session = Session(simple, ["ida"])
         session.start()
 
 

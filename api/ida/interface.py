@@ -1,7 +1,6 @@
-import asyncio
 import functools
 import inspect
-from typing import Callable, Any, Optional, List, Tuple
+from typing import Callable, Any, Optional, List
 
 import networkx as nx
 
@@ -11,9 +10,9 @@ from ..artifacts.line import Line
 from ..artifacts.function import Function
 from ..interface import DecompilerInterface
 from ..artifacts.address import Address
-from ..utils import Xref, AddressRange
+from ..utils import Xref, AddressRange, ExceptionWrapperProtocol
 from ..launcher import Launcher
-from ..exceptions import NoFunction, SetTypeFailed
+from ..exceptions import SetTypeFailed, NoFunction
 
 try:
     import idaapi
@@ -43,8 +42,15 @@ class IDAInterface(DecompilerInterface):
                 launcher = Launcher.instance()
                 task = launcher.enqueue_task(self._handle, lambda: func(self, *args, **kwargs),
                                              handler, mode)
+
+                def check_exception(res):
+                    if isinstance(res, ExceptionWrapperProtocol):
+                        raise res.e
+                    return res
+
                 if wait:
-                    return task.get_loop().run_until_complete(task)
+                    return check_exception(task.get_loop().run_until_complete(task))
+                task.add_done_callback(lambda future: check_exception(future.result()))
                 return task
 
             return wrapper
@@ -111,13 +117,13 @@ class IDAInterface(DecompilerInterface):
 
     @execute()
     def xrefs_to(self, addr: Address) -> List[Xref]:
-        return list(map(lambda xref: Xref(xref.frm, xref.to, xref.iscode, xref.user, IDAXrefType(xref.type)),
-                        idautils.XrefsTo(int(addr))))
+        return list(map(lambda xref: Xref(self.addr(xref.frm), self.addr(xref.to), xref.iscode, xref.user, IDAXrefType(xref.type)),
+                        idautils.XrefsTo(addr.value)))
 
     @execute()
     def xrefs_from(self, addr: Address) -> List[Xref]:
-        return list(map(lambda xref: Xref(xref.frm, xref.to, xref.iscode, xref.user, IDAXrefType(xref.type)),
-                        idautils.XrefsFrom(int(addr))))
+        return list(map(lambda xref: Xref(self.addr(xref.frm), self.addr(xref.to), xref.iscode, xref.user, IDAXrefType(xref.type)),
+                        idautils.XrefsFrom(addr.value)))
 
     @staticmethod
     @execute()
@@ -174,20 +180,18 @@ class IDAInterface(DecompilerInterface):
     @execute()
     def _raw_func(self, addr: Address):
         raw_func: idaapi.func_t = idaapi.get_func(addr.value)
-        if not raw_func:
-            # raise NoFunction("No function at 0x{:08X}".format(addr.value))
-            return None
         return raw_func
 
     @execute()
-    def _func_setup_core(self, addr: Address):
+    def function(self, addr: Address) -> Function:
         raw_func: func_t = self._raw_func(addr)
+        if not raw_func:
+            raise NoFunction("No function at 0x{:08X}".format(addr.value))
 
         function = Function(self.addr(raw_func.start_ea))
         function.comparator = lambda a1, a2: (
                 (f1 := self._raw_func(self.addr(a1))) and (f2 := self._raw_func(self.addr(a2)))
                 and f1.start_ea == f2.start_ea)
-        function.ptr = raw_func
         function._end_addr = self.addr(raw_func.end_ea)
         function.flags = raw_func.flags
         function.lines = [self.line(line) for line in idautils.FuncItems(function.start_addr)]
@@ -195,27 +199,12 @@ class IDAInterface(DecompilerInterface):
         # fix xref stuff afterwards
         function.xrefs["from"] = [xref for line in function.lines for xref in line.xrefs_from
                                   if not (xref.type.is_flow or (xref.to in function and xref.iscode))]
-        return raw_func, function
-
-    @execute()
-    def _func_setup_misc(self, raw_func, function: Function):
         function.comments["regular"] = idaapi.get_func_cmt(raw_func, False)
         function.comments["repeat"] = idaapi.get_func_cmt(raw_func, True)
         function.frame_size = idaapi.get_frame_size(raw_func)
         function.signature = idc.get_type(function.start_addr)
         function.tinfo = idc.get_tinfo(function.start_addr)
         return function
-
-    def _function(self, addr: Address) -> Tuple[Function, Function]:
-        raw, out = self._func_setup_core(addr)
-        future = self._func_setup_misc(raw, out)
-        print(f"function: {hex(addr.value)}")
-        print(out.lines[0].addr.name)
-        return out, future
-
-    def function(self, addr: Address) -> Function:
-        return self._function(addr)[1]
-        #return (future := self._function(addr)[1]).get_loop().run_until_complete(future)
 
     @execute()
     def set_function_signature(self, function: Function, signature: str):
@@ -244,7 +233,7 @@ class IDAInterface(DecompilerInterface):
     @execute()
     def flow_chart(self, function: Function, flags: int = 0) -> FlowChart:
         flow_chart = FlowChart(function)
-        raw_q = qflow_chart_t("", flow_chart.func.ptr, flow_chart.func.start_addr, flow_chart.func.end_addr, flags)
+        raw_q = qflow_chart_t("", self._raw_func(function.addr), flow_chart.func.start_addr, flow_chart.func.end_addr, flags)
         flow_chart.size = raw_q.size()
         flow_chart._q = raw_q
         flow_chart.flags = raw_q.flags
