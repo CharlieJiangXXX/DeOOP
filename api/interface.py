@@ -6,57 +6,7 @@ from .artifacts.line import Line
 from .artifacts.address import Patch, Address
 from .artifacts.function import Function
 from .exceptions import NoFunction
-
-
-class AddressRange:
-    def __init__(self, start: Optional[Address], end: Optional[Address]) -> None:
-        self.start = start
-        self.end = end
-
-    @property
-    def start_addr(self) -> int:
-        return self.start.value
-
-    @property
-    def end_addr(self) -> int:
-        return self.end.value
-
-    def __str__(self):
-        return f"<AddressRange: {hex(self.start.value)}-{hex(self.end.value)}>"
-
-    def __repr__(self):
-        return self.__str__()
-
-    # expand based on ida range_t
-
-
-class XrefType:
-    def __init__(self, type_):
-        self._type = type_
-
-    @property
-    def type(self) -> int:
-        raise NotImplementedError
-
-    @property
-    def flags(self) -> int:
-        raise NotImplementedError
-
-    @property
-    def name(self) -> str:
-        raise NotImplementedError
-
-    def __repr__(self):
-        return self.name
-
-
-class Xref:
-    def __init__(self, frm: Address, to: Address, iscode: bool, user: bool, type_: XrefType):
-        self.frm = frm
-        self.to = to
-        self.iscode = iscode
-        self.user = user
-        self.type = type_
+from .utils import AddressRange, Xref
 
 
 class DecompilerInterface:
@@ -108,10 +58,10 @@ class DecompilerInterface:
     def max_addr(self) -> Address:
         raise NotImplementedError
 
-    def addr(self, addr: int) -> Optional[Address]:
+    def addr(self, addr: Optional[int] = None) -> Optional[Address]:
         raise NotImplementedError
 
-    def addr_range(self, start: int, end: int) -> AddressRange:
+    def addr_range(self, start: Optional[int] = None, end: Optional[int] = None) -> AddressRange:
         raise NotImplementedError
 
     # TO-DO: make this more robust (error handling, different types of names)
@@ -155,7 +105,7 @@ class DecompilerInterface:
         Dangerous! Output may be particularly large
         :return:
         """
-        return self.lines_in(AddressRange(None, None))
+        return self.lines_in(self.addr_range())
 
     def function(self, addr: Address) -> Function:
         pass
@@ -197,7 +147,7 @@ class DecompilerInterface:
 
     @property
     def functions(self):
-        return self.functions_in(AddressRange(None, None))
+        return self.functions_in(self.addr_range())
 
     def decompile(self, function: Function) -> str:
         raise NotImplementedError

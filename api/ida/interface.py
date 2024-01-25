@@ -1,13 +1,16 @@
 import functools
+import inspect
+import threading
 from typing import Callable, Any, Optional, List
 
 import networkx as nx
-from ida_gdl import qflow_chart_t
 
 from .flowchart import FlowChart, BasicBlock
 from ..artifacts.line import Line
 from ..artifacts.function import Function
-from ..interface import DecompilerInterface, Address, Xref, XrefType, AddressRange
+from ..interface import DecompilerInterface
+from ..artifacts.address import Address
+from ..utils import Xref, XrefType, AddressRange
 from ..launcher import Launcher
 from ..exceptions import NoFunction, SetTypeFailed
 
@@ -16,6 +19,7 @@ try:
     import idc
     import ida_hexrays
     import idautils
+    from ida_gdl import qflow_chart_t
 except ImportError:
     pass
 
@@ -31,8 +35,10 @@ class IDAInterface(DecompilerInterface):
         def decorator(func):
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
-                launcher = Launcher.instance()
+                if inspect.stack()[-1].function == 'IDAPython_ExecScript':
+                    return func(self, *args, **kwargs)
 
+                launcher = Launcher.instance()
                 task = launcher.enqueue_task(self._handle, lambda: func(self, *args, **kwargs),
                                              handler, mode)
                 if wait:
@@ -81,12 +87,13 @@ class IDAInterface(DecompilerInterface):
         return self.addr(idaapi.cvar.inf.max_ea)
 
     @execute()
-    def addr(self, addr: int) -> Optional[Address]:
-        if addr not in (None, idaapi.BADADDR):
+    def addr(self, addr: Optional[int] = None) -> Optional[Address]:
+        if addr in (None, idaapi.BADADDR):
             return None
-        addr = Address(addr)
-        addr._name = idaapi.get_ea_name(int(addr), idaapi.GN_VISIBLE)
-        addr.offset_in_bin = idaapi.get_fileregion_offset(int(addr))
+        address = Address(addr)
+        address._name = idaapi.get_ea_name(address.value, idaapi.GN_VISIBLE)
+        address.offset_in_bin = idaapi.get_fileregion_offset(address.value)
+        return address
 
     @execute(mode=Launcher.TaskMode.WRITE.value)
     def set_name(self, addr: Address, name: str, force: bool = False) -> bool:
@@ -97,8 +104,7 @@ class IDAInterface(DecompilerInterface):
             return True
         return False
 
-    @execute()
-    def addr_range(self, start: int, end: int) -> AddressRange:
+    def addr_range(self, start: Optional[int] = None, end: Optional[int] = None) -> AddressRange:
         return AddressRange(self.addr(start) or self.min_addr, self.addr(end) or self.max_addr)
 
     @execute()
@@ -119,26 +125,26 @@ class IDAInterface(DecompilerInterface):
     @execute()
     def line(self, addr: int) -> Line:
         line = Line(self.addr(idaapi.get_item_head(addr)))
-        line.comments["regular"] = idaapi.get_cmt(line.addr, False)
-        line.comments["repeat"] = idaapi.get_cmt(line.addr, True)
+        line.comments["regular"] = idaapi.get_cmt(line.start_addr, False)
+        line.comments["repeat"] = idaapi.get_cmt(line.start_addr, True)
 
         def iter_extra(start):
-            end = idaapi.get_first_free_extra_cmtidx(line.addr, start)
+            end = idaapi.get_first_free_extra_cmtidx(line.start_addr, start)
             for idx in range(start, end):
-                yield idaapi.get_extra_cmt(line.addr, idx) or ''
+                yield idaapi.get_extra_cmt(line.start_addr, idx) or ''
 
         line.comments["anterior"] = "\n".join(iter_extra(idaapi.E_PREV))
         line.comments["posterior"] = "\n".join(iter_extra(idaapi.E_NEXT))
 
-        line.asm = idc.GetDisasm(line.addr)
+        line.asm = idc.GetDisasm(line.start_addr)
         line.xrefs["from"] = self.xrefs_from(line.addr)
         line.xrefs["to"] = self.xrefs_to(line.addr)
-        line.size = idaapi.get_item_size(line.addr)
-        line.bytes = idaapi.get_bytes(line.addr, line.size)
-        line.type_flags = idaapi.get_full_flags(line.addr)
+        line.size = idaapi.get_item_size(line.start_addr)
+        line.bytes = idaapi.get_bytes(line.start_addr, line.size)
+        line.type_flags = idaapi.get_full_flags(line.start_addr)
         props = {lambda: idaapi.is_code(line.type_flags): "code",
                  lambda: idaapi.is_data(line.type_flags): "data",
-                 lambda: self.is_string(line.addr.value): "string",
+                 lambda: self.is_string(line.start_addr): "string",
                  lambda: idaapi.is_tail(line.type_flags): "tail",
                  lambda: idaapi.is_unknown(line.type_flags): "unknown"}
         line.type_info = next((v for k, v in props.items() if k()), "")
@@ -165,6 +171,7 @@ class IDAInterface(DecompilerInterface):
 
     @execute()
     def function(self, addr: Address) -> Function:
+        print(f"function: {hex(addr.value)}")
         raw_func: idaapi.func_t = idaapi.get_func(addr.value)
         if not raw_func:
             raise NoFunction("No function at 0x{:08X}".format(addr.value))
@@ -175,15 +182,22 @@ class IDAInterface(DecompilerInterface):
         function.comments["regular"] = idaapi.get_func_cmt(raw_func, False)
         function.comments["repeat"] = idaapi.get_func_cmt(raw_func, True)
         function.flags = raw_func.flags
-        function.lines = [Line(line) for line in idautils.FuncItems(function.start_addr)]
+        print("1")
+        function.lines = [self.line(line) for line in idautils.FuncItems(function.start_addr)]
+        for line in function.lines:
+            print(line.asm)
         function.xrefs["to"] = function.lines[0].xrefs_to
+        print("3")
         # fix xref stuff afterwards
+        # this doesn't quite work, too slow!
         function.xrefs["from"] = [xref for line in self.lines for xref in line.xrefs_from
                                   if not (xref.type.is_flow or (xref.to in self and xref.iscode))]
         function.frame_size = idaapi.get_frame_size(raw_func)
         function.signature = idc.get_type(function.start_addr)
         function.tinfo = idc.get_tinfo(function.start_addr)
         function.factory = self.function
+        print("function done")
+        print(function.lines[0].addr.name)
         return function
 
     # function flag checkers?
@@ -202,7 +216,7 @@ class IDAInterface(DecompilerInterface):
 
     @execute()
     def functions_in(self, span: AddressRange):
-        return [self.function(func_t) for func_t in idautils.Functions(span.start_addr, span.end_addr)]
+        return [self.function(self.addr(func_t)) for func_t in idautils.Functions(span.start_addr, span.end_addr)]
 
     @execute()
     def decompile(self, function: Function) -> str:
@@ -220,7 +234,7 @@ class IDAInterface(DecompilerInterface):
         flow_chart.flags = raw_q.flags
         flow_chart.num_proper = raw_q.nproper
 
-        flow_chart.items = [BasicBlock(i, AddressRange(raw_q[i].start_ea, raw_q[i].end_ea), raw_q.calc_block_type(i))
+        flow_chart.items = [BasicBlock(i, self.addr_range(raw_q[i].start_ea, raw_q[i].end_ea), raw_q.calc_block_type(i))
                             for i in range(flow_chart.size)]
 
         for block in flow_chart:
@@ -253,4 +267,4 @@ class IDAInterface(DecompilerInterface):
 
     @property
     def codeblocks(self):
-        return self.codeblocks_in(AddressRange(None, None))
+        return self.codeblocks_in(self.addr_range())

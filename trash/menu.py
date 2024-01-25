@@ -28,10 +28,10 @@ class MenuHandler:
         self.path = self.action.TEXT
 
     def attach(self) -> bool:
-        return idaapi.attach_action_to_menu(self.path, self.action.get_name(), idaapi.SETMENU_APP)
+        return ida_api.attach_action_to_menu(self.path, self.action.get_name(), ida_api.SETMENU_APP)
 
     def detach(self) -> None:
-        idaapi.detach_action_from_menu(self.path, self.action.get_name())
+        ida_api.detach_action_from_menu(self.path, self.action.get_name())
 
 
 class PseudoMenuHandler(ActionHandler):
@@ -53,10 +53,10 @@ class PseudoMenuHandler(ActionHandler):
     def pseudo_hook(cls):
         name = cls.get_name()
 
-        class PseudoHook(idaapi.UI_Hooks):
+        class PseudoHook(ida_api.UI_Hooks):
             def finish_populating_widget_popup(self, form, popup):
-                if idaapi.get_widget_type(form) == idaapi.BWN_PSEUDOCODE:
-                    idaapi.attach_action_to_popup(form, popup, name, concat(config.PLUGIN_NAME, ""))
+                if ida_api.get_widget_type(form) == ida_api.BWN_PSEUDOCODE:
+                    ida_api.attach_action_to_popup(form, popup, name, concat(config.PLUGIN_NAME, ""))
 
         return PseudoHook
 

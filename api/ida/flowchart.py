@@ -2,7 +2,7 @@ from enum import IntEnum, IntFlag
 from typing import List
 
 from ..artifacts.function import Function
-from .interface import AddressRange
+from ..utils import AddressRange
 
 
 class FcBlockType(IntEnum):

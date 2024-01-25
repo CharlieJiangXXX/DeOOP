@@ -5,6 +5,21 @@ from .line import Line
 
 
 class Function(Artifact):
+    __slots__ = Artifact.__slots__ + (
+        "addr",
+        "_end_addr",
+        "comments",
+        "xrefs",
+        "lines",
+        "frame_size",
+        "flags",
+        "signature",
+        "ptr",
+        "tinfo",
+        "factory",
+        "pseudocode"
+    )
+
     def __init__(self, addr: Address, last_change: Any = None):
         super().__init__(last_change)
 

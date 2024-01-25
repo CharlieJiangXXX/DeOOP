@@ -22,20 +22,20 @@ class ShowFusion(ActionHandler):
         super().__init__()
 
     def update(self, ctx: ida_kernwin.action_ctx_base_t):
-        if ctx.widget_type in [idaapi.BWN_DISASM, idaapi.BWN_DUMP, idaapi.BWN_PSEUDOCODE]:
-            return idaapi.AST_ENABLE
-        return idaapi.AST_DISABLE
+        if ctx.widget_type in [ida_api.BWN_DISASM, ida_api.BWN_DUMP, ida_api.BWN_PSEUDOCODE]:
+            return ida_api.AST_ENABLE
+        return ida_api.AST_DISABLE
 
     def _activate(self, ctx: ida_kernwin.action_ctx_base_t):
-        func = idaapi.get_func(ctx.cur_ea)
+        func = ida_api.get_func(ctx.cur_ea)
         if not func:
             return
 
         # make naming more optimal
-        name = idaapi.get_ea_name(func.start_ea)
-        tform = idaapi.find_widget(name)
+        name = ida_api.get_ea_name(func.start_ea)
+        tform = ida_api.find_widget(name)
         if tform:
-            idaapi.activate_widget(tform, True)
+            ida_api.activate_widget(tform, True)
         else:
             FusionViewer(FunctionRetriever.fetch_function_tree(func.start_ea)).Show()
 
@@ -46,10 +46,10 @@ class QtViewer(PluginForm):
         self.parent = None
 
     def OnCreate(self, form):
-        self.parent = idaapi.PluginForm.FormToPyQtWidget(form)
+        self.parent = ida_api.PluginForm.FormToPyQtWidget(form)
 
     def Show(self, caption=None, options=0):
-        return idaapi.PluginForm.Show(self, caption, options=options)
+        return ida_api.PluginForm.Show(self, caption, options=options)
 
 
 class FusionViewer(QtViewer):

@@ -54,7 +54,7 @@ class DummyHandler(ActionHandler):
     """
 
 
-class DeOOPPlugin(idaapi.plugin_t):
+class DeOOPPlugin(ida_api.plugin_t):
     wanted_name = 'DeOOP'
     wanted_hotkey = ''
     comment = "Streamline and augment Hex-Rays pseudocode with fine-tuned CodeLlama"
@@ -68,8 +68,8 @@ class DeOOPPlugin(idaapi.plugin_t):
 
     def init(self):
         # Check whether the decompiler is available
-        if not ida_hexrays.init_hexrays_plugin():
-            return idaapi.PLUGIN_SKIP
+        if not ida_decompile.init_hexrays_plugin():
+            return ida_api.PLUGIN_SKIP
 
         self._manager = GenericMenuManager()
         self._manager.add_handlers(concat("Edit", config.PRETTY_NAME), [RetrieveAllHandler])
@@ -92,7 +92,7 @@ class DeOOPPlugin(idaapi.plugin_t):
         # grab vtables
         FunctionRetriever.init()
 
-        return idaapi.PLUGIN_KEEP
+        return ida_api.PLUGIN_KEEP
 
     def term(self):
         FunctionRetriever.save()

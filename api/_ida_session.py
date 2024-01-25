@@ -1,5 +1,7 @@
 import os
+import sys
 import threading
+import traceback
 from typing import Any, Generator, Dict
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
@@ -50,12 +52,9 @@ class IDASession:
                 l = [None]
 
                 def wrapper():
-                    try:
-                        resp = func()
-                        l[0] = resp
-                        return 0
-                    except Exception as e:
-                        print(f"Error executing task: {e.__class__}: {e}")
+                    resp = func()
+                    l[0] = resp
+                    return 0
 
                 idaapi.execute_sync(wrapper, mode)
                 out = l[0]
@@ -63,8 +62,8 @@ class IDASession:
             if isinstance(out, Generator):
                 out = list(out)
             self._receiverProxy.notify(self._handle, task_id, dill.dumps(out))
-        except Exception as e:
-            print(f"Error executing task: {e.__class__}: {e}")
+        except Exception:
+            traceback.print_exc(file=sys.stdout)
 
     @staticmethod
     def execute_cmd(cmd: str) -> Any:

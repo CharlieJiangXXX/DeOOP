@@ -8,8 +8,15 @@ class Line(Artifact):
     """
 
     __slots__ = Artifact.__slots__ + (
-        "_addr",
-        "_comments"
+        "addr",
+        "comments",
+        "xrefs",
+        "size",
+        "asm",
+        "bytes",
+        "type_flags",
+        "type_info",
+        "factory"
     )
 
     def __init__(self, addr: Address, last_change=None):

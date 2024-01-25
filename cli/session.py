@@ -1,13 +1,10 @@
-import functools
-import os
-import sys
 from typing import List, Optional
 
 import config
-from api.common import loadall
 from api.controller import Decompiler
 from api.launcher import Launcher
 from model.compiler_explorer import CompilerManager
+from api.ida.interface import IDAInterface
 
 
 class Session:
@@ -29,7 +26,8 @@ class Session:
 
         self._controller = Decompiler(self._handle, self._supported)
         self._projDir and self._controller.load_from_file(self._projDir)
-        self._controller.test()
+        ida_interface: IDAInterface = self._controller.interfaces["ida"]
+        print(ida_interface.call_graph())
 
     @classmethod
     def create(cls, binary: str, support_decompilers: List[str], proj_dir: Optional[str] = None):
