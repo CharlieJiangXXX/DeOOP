@@ -1,6 +1,6 @@
 from .artifact import Artifact
 from .address import Address, HasAddr
-from typing import Any, List, Union
+from typing import Any, List, Union, Callable
 from .line import Line
 
 
@@ -16,7 +16,7 @@ class Function(Artifact):
         "signature",
         "ptr",
         "tinfo",
-        "factory",
+        "comparator",
         "pseudocode"
     )
 
@@ -33,7 +33,7 @@ class Function(Artifact):
         self.signature = ""
         self.ptr = None
         self.tinfo = None
-        self.factory = None
+        self.comparator: Callable[[int, int], bool] = None
 
         self.pseudocode = ""
 
@@ -78,14 +78,14 @@ class Function(Artifact):
         return self._end_addr.value
 
     def __repr__(self):
-        return 'Function(name="{}", addr=0x{:08X})'.format(self.name, self.start_ea)
+        return 'Function(name="{}", addr=0x{:08X})'.format(self.name, self.start_addr)
 
     def __contains__(self, item: Union[Address, HasAddr]):
         """Is an item contained (its EA is in) the function. Item must either have an attributed called addr
         of type Address or itself be one."""
         ea = getattr(item, "addr", item)
 
-        return self.factory(ea) == self.factory(self.start_addr)
+        return self.comparator(ea, self.start_addr)
 
     @property
     def name(self):

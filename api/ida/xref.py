@@ -1,4 +1,4 @@
-from api.interface import XrefType
+from ..utils import XrefType
 from enum import IntEnum, IntFlag
 
 """
