@@ -12,8 +12,6 @@ import dill
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
 
-from .utils import ExceptionWrapperProtocol
-
 SessionHandle = int
 TaskID = int
 

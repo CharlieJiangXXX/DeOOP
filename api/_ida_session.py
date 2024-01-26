@@ -1,5 +1,6 @@
 import os
 import threading
+from queue import Queue
 from typing import Any, Generator, Dict
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
@@ -20,8 +21,11 @@ class IDASession:
         self._console = console
         self._receiverProxy = xmlrpc.client.ServerProxy(
             f"http://localhost:{int(os.environ['DEOOP_IDA_RECEIVER_PORT'])}/")
+        self._taskQueue = Queue()
+
         with SimpleXMLRPCServer(("localhost", 0), allow_none=True) as server:
             self.server = server
+            server.timeout = 0.1
             server.register_function(self.enqueue_task, "enqueue_task")
             server.register_function(self.execute_cmd, "execute_cmd")
             server.register_function(self.execute_script, "execute_script")
@@ -32,12 +36,18 @@ class IDASession:
             self._shutdownEvent = threading.Event()
             while not self._shutdownEvent.is_set():
                 server.handle_request()
+                self.process_task()
         self.server.server_close()
         ida_pro.qexit(0)
 
     def shutdown(self) -> None:
         print("Session shutting down gracefully")
         self._shutdownEvent.set()
+
+    def process_task(self):
+        if not self._taskQueue.empty():
+            task_id, task_info, mode = self._taskQueue.get()
+            self.execute_task(task_id, task_info, mode)
 
     def enqueue_task(self, task_id: int, task_info, mode: int) -> None:
         """
@@ -47,6 +57,9 @@ class IDASession:
         due to a deadlock situation. Instead, the user should implement a form of
         signaling mechanism to wait until the thread has finished to join.
         """
+        self._taskQueue.put((task_id, task_info, mode))
+
+    def execute_task(self, task_id: int, task_info, mode: int):
         func = dill.loads(task_info.data)
         try:
             if mode == -1:
