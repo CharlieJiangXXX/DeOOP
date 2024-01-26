@@ -4,7 +4,7 @@ from typing import Optional, Any, Protocol
 from .artifact import Artifact
 
 
-class Address:
+class Address(Artifact):
     __slots__ = Artifact.__slots__ + (
         "value",
         "offset_in_bin",
@@ -12,6 +12,7 @@ class Address:
     )
 
     def __init__(self, addr: Optional[int] = None):
+        super().__init__()
         self.value = addr
         self.offset_in_bin = -1
         self._name = ""

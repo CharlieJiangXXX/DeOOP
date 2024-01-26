@@ -17,7 +17,8 @@ class Artifact:
     All checks and specific operations should be performed by controller directives. Artifact should only handle storing
     and cacheing.
     If a subclass is to represent a unique artifact, it must have a non-trivial, hashable positional argument to be
-     used as an identifier.
+     used as an identifier. Instantiation of an artifact must be done in the remote process, if any, for the class
+     variable _cache will not be synced.
     """
     __slots__ = (
         "last_change",
@@ -26,12 +27,12 @@ class Artifact:
     _cache = {}
 
     def __new__(cls, *args, **kwargs):
-        # TO-DO: fix me
         identifier = args[0] if args else None
         if identifier and hasattr(identifier, '__hash__') and callable(identifier.__hash__):
-            if identifier not in cls._cache:
-                cls._cache[identifier] = super().__new__(cls)
-            return cls._cache[identifier]
+            cls_cache = cls._cache.setdefault(cls.__name__, {})
+            if identifier not in cls_cache:
+                cls_cache[identifier] = super().__new__(cls)
+            return cls_cache[identifier]
         return super().__new__(cls)
 
     def __init__(self, last_change=None):

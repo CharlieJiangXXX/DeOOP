@@ -196,7 +196,6 @@ class IDAInterface(DecompilerInterface):
         function.flags = raw_func.flags
         function.lines = [self.line(line) for line in idautils.FuncItems(function.start_addr)]
         function.xrefs["to"] = function.lines[0].xrefs_to
-        # fix xref stuff afterwards
         function.xrefs["from"] = [xref for line in function.lines for xref in line.xrefs_from
                                   if not (xref.type.is_flow or (xref.to in function and xref.iscode))]
         function.comments["regular"] = idaapi.get_func_cmt(raw_func, False)

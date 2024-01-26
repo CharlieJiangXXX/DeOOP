@@ -122,7 +122,6 @@ class DecompilerInterface:
         digraph = nx.DiGraph()
 
         for function in self.functions:
-            print(function)
             for xref in itertools.chain(function.xrefs_from, function.xrefs_to):
                 try:
                     frm = self.function(xref.frm).start_addr

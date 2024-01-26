@@ -27,7 +27,8 @@ class Session:
         self._controller = Decompiler(self._handle, self._supported)
         self._projDir and self._controller.load_from_file(self._projDir)
         ida_interface: IDAInterface = self._controller.interfaces["ida"]
-        print(ida_interface.call_graph())
+        call_graph = ida_interface.call_graph()
+        print(call_graph.nodes())
 
     @classmethod
     def create(cls, binary: str, support_decompilers: List[str], proj_dir: Optional[str] = None):
