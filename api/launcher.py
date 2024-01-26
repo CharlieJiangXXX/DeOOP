@@ -3,7 +3,7 @@ import os.path
 import asyncio
 import subprocess
 import threading
-from enum import Enum
+from enum import IntEnum
 from types import TracebackType
 from typing import List, Optional, Callable, Any, Dict, Type
 import tempfile
@@ -23,7 +23,7 @@ def quote_spaces_in_path(path):
 class Launcher:
     _instance = None
 
-    class TaskMode(Enum):
+    class TaskMode(IntEnum):
         SAFE = -1
         FAST = 0
         READ = 1
@@ -55,12 +55,14 @@ class Launcher:
         self._idaReceiver.shutdown()
         self._idaReceiver.server_close()
 
-    def ida_notify(self, handle: SessionHandle, task_id: TaskID, resp: Any):
+    def ida_notify(self, handle: SessionHandle, task_id: TaskID, resp: xmlrpc.client.Binary,
+                   exception: xmlrpc.client.Binary):
         future, handler = self._pendingTasks[handle][task_id]
         resp = dill.loads(resp.data)
+        exception = dill.loads(exception.data)
         if handler:
             handler(resp)
-        future.get_loop().call_soon_threadsafe(future.set_result, resp)
+        future.get_loop().call_soon_threadsafe(future.set_result, (resp, exception))
 
     def ida_ping(self, handle: SessionHandle, port: int):
         self._instances[handle]["ida"] = port
@@ -110,7 +112,7 @@ class Launcher:
         return self._instances[handle].keys()
 
     def _process_task(self, handle: SessionHandle, task: Callable[[], Any] = None,
-                      handler: Callable[[Any], None] = None, mode: int = TaskMode.SAFE.value,
+                      handler: Callable[[Any], None] = None, mode: TaskMode = TaskMode.SAFE, threaded: bool = False,
                       cmd: str = "",
                       path: str = "", env: Dict = None) -> Any:
         # TO-DO: add decompiler list option
@@ -127,23 +129,23 @@ class Launcher:
                             q = self._pendingTasks[handle]
                             future = asyncio.Future()
                             q.append((future, handler))
-                            proxy.enqueue_task(len(q) - 1, dill.dumps(task), mode)
+                            proxy.enqueue_task(len(q) - 1, dill.dumps(task), mode.value, threaded)
                             return future
                         elif cmd:
                             proxy.execute_cmd(cmd)
                         elif path:
-                            proxy.execute_script(path, env or {}, mode)
+                            proxy.execute_script(path, env or {}, mode.value)
                 case _:
                     pass
 
     def enqueue_task(self, handle: SessionHandle, task: Callable[[], Any], handler: Callable[[Any], None] = None,
-                     mode: int = TaskMode.SAFE.value) -> asyncio.Future:
-        return self._process_task(handle, task, handler, mode)
+                     mode: TaskMode = TaskMode.SAFE, threaded: bool = False) -> asyncio.Future:
+        return self._process_task(handle, task, handler, mode, threaded)
 
     def execute_cmd(self, handle: SessionHandle, cmd: str) -> None:
         self._process_task(handle, cmd=cmd)
 
-    def execute_script(self, handle: SessionHandle, path: str, env: Dict, mode: int = TaskMode.WRITE.value) -> None:
+    def execute_script(self, handle: SessionHandle, path: str, env: Dict, mode: TaskMode = TaskMode.WRITE) -> None:
         self._process_task(handle, path=path, env=env, mode=mode)
 
     def stream_ida_logs(self, handle: SessionHandle):

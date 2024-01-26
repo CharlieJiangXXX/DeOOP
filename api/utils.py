@@ -61,6 +61,7 @@ class Xref:
 @runtime_checkable
 class ExceptionWrapperProtocol(Protocol):
     e: Exception
+    traceback: str
 
-    def __init__(self, e: Exception) -> None:
+    def __init__(self, e: Exception, trace: str) -> None:
         ...

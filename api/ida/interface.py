@@ -32,7 +32,7 @@ class IDAInterface(DecompilerInterface):
 
     @staticmethod
     def execute(wait: bool = True, handler: Callable[[Any], None] = None,
-                mode: int = Launcher.TaskMode.SAFE.value):
+                mode: int = Launcher.TaskMode.SAFE, threaded: bool = False):
         def decorator(func):
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
@@ -41,12 +41,13 @@ class IDAInterface(DecompilerInterface):
 
                 launcher = Launcher.instance()
                 task = launcher.enqueue_task(self._handle, lambda: func(self, *args, **kwargs),
-                                             handler, mode)
+                                             handler, mode, threaded)
 
                 def check_exception(res):
-                    if isinstance(res, ExceptionWrapperProtocol):
-                        raise res.e
-                    return res
+                    out, exception = res
+                    if isinstance(exception, ExceptionWrapperProtocol):
+                        raise exception.e
+                    return out
 
                 if wait:
                     return check_exception(task.get_loop().run_until_complete(task))
@@ -103,7 +104,7 @@ class IDAInterface(DecompilerInterface):
         address.offset_in_bin = idaapi.get_fileregion_offset(address.value)
         return address
 
-    @execute(mode=Launcher.TaskMode.WRITE.value)
+    @execute(mode=Launcher.TaskMode.WRITE)
     def set_name(self, addr: Address, name: str, force: bool = False) -> bool:
         if (next((value for cond, value in
                   [(not addr._name, idaapi.set_name(addr.value, name, idaapi.SN_NOWARN | idaapi.SN_NOCHECK)),
@@ -182,7 +183,7 @@ class IDAInterface(DecompilerInterface):
         raw_func: idaapi.func_t = idaapi.get_func(addr.value)
         return raw_func
 
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def function(self, addr: Address) -> Function:
         raw_func: func_t = self._raw_func(addr)
         if not raw_func:

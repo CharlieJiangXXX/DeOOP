@@ -5,14 +5,16 @@ from typing import Any, Generator, Dict
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
 import dill
+import traceback
 
 import idaapi
 import ida_pro
 
 
 class ExceptionWrapper:
-    def __init__(self, e: Exception):
+    def __init__(self, e: Exception, trace: str):
         self.e = e
+        self.traceback = trace
 
 
 class IDASession:
@@ -49,7 +51,7 @@ class IDASession:
             task_id, task_info, mode = self._taskQueue.get()
             self.execute_task(task_id, task_info, mode)
 
-    def enqueue_task(self, task_id: int, task_info, mode: int) -> None:
+    def enqueue_task(self, task_id: int, task_info: xmlrpc.client.Binary, mode: int, threaded: bool) -> None:
         """
         Note: it is possible to run tasks that start new threads. But beware that
         running thread.join() immediately afterward would cause IDA to hang if
@@ -59,27 +61,33 @@ class IDASession:
         """
         self._taskQueue.put((task_id, task_info, mode))
 
-    def execute_task(self, task_id: int, task_info, mode: int):
+    def execute_task(self, task_id: int, task_info: xmlrpc.client.Binary, mode: int):
         func = dill.loads(task_info.data)
+        out, exception, trace = None, None, ""
+
         try:
             if mode == -1:
                 out = func()
             else:
-                l = [None]
+                results = {'output': None, 'exception': None, 'trace': ""}
 
                 def wrapper():
-                    resp = func()
-                    l[0] = resp
-                    return 0
+                    try:
+                        results['output'] = func()
+                    except Exception as e:
+                        results['exception'] = e
+                        results['trace'] = traceback.format_exc()
 
                 idaapi.execute_sync(wrapper, mode)
-                out = l[0]
-
-            if isinstance(out, Generator):
-                out = list(out)
-            self._receiverProxy.notify(self._handle, task_id, dill.dumps(out))
+                out, exception, trace = results['output'], results['exception'], results['trace']
         except Exception as e:
-            self._receiverProxy.notify(self._handle, task_id, dill.dumps(ExceptionWrapper(e)))
+            exception, trace = e, traceback.format_exc()
+
+        if isinstance(out, Generator):
+            out = list(out)
+
+        exception_data = ExceptionWrapper(exception, trace) if exception else None
+        self._receiverProxy.notify(self._handle, task_id, dill.dumps(out), dill.dumps(exception_data))
 
     @staticmethod
     def execute_cmd(cmd: str) -> Any:
