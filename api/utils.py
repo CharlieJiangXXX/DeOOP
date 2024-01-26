@@ -1,6 +1,22 @@
-from typing import Optional, Protocol, runtime_checkable
+import os
+import pickle
 
+from typing import Optional, Protocol, runtime_checkable, Generator
 from .artifacts.address import Address
+
+
+def concat(*args):
+    assert args
+    return os.path.join(*args).replace("\\", "/")
+
+
+def loadall(filename: str) -> Generator:
+    with open(filename, "rb") as f:
+        while True:
+            try:
+                yield pickle.load(f)
+            except EOFError:
+                break
 
 
 def is_signed(number, size: int):

@@ -1,11 +1,10 @@
-import itertools
 import os.path
 import pickle
 from dataclasses import dataclass
 from typing import List
 import appdirs
 from config import *
-from api.common import loadall
+from api.utils import loadall
 
 from model.compiler_explorer import CompilerManager
 
