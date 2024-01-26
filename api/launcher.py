@@ -60,7 +60,7 @@ class Launcher:
         resp = dill.loads(resp.data)
         if handler:
             handler(resp)
-        future.set_result(resp)
+        future.get_loop().call_soon_threadsafe(future.set_result, resp)
 
     def ida_ping(self, handle: SessionHandle, port: int):
         self._instances[handle]["ida"] = port
