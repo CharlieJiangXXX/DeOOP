@@ -37,7 +37,7 @@ class AddressRange:
         return self.end.value
 
     def __str__(self):
-        return f"<AddressRange: {hex(self.start.value)}-{hex(self.end.value)}>"
+        return f"<AddressRange: {hex(self.start_addr)}-{hex(self.end_addr)}>"
 
     def __repr__(self):
         return self.__str__()

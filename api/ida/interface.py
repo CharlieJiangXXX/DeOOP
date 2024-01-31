@@ -30,33 +30,7 @@ class IDAInterface(DecompilerInterface):
         super().__init__(handle)
         self._decompilerAvailable: Optional[bool] = None
 
-    @staticmethod
-    def execute(wait: bool = True, handler: Callable[[Any], None] = None,
-                mode: int = Launcher.TaskMode.SAFE, threaded: bool = False):
-        def decorator(func):
-            @functools.wraps(func)
-            def wrapper(self, *args, **kwargs):
-                if inspect.stack()[-1].function == 'IDAPython_ExecScript':
-                    return func(self, *args, **kwargs)
-
-                launcher = Launcher.instance()
-                task = launcher.enqueue_task(self._handle, lambda: func(self, *args, **kwargs),
-                                             handler, mode, threaded)
-
-                def check_exception(res):
-                    out, exception = res
-                    if isinstance(exception, ExceptionWrapperProtocol):
-                        raise exception.e
-                    return out
-
-                if wait:
-                    return check_exception(task.get_loop().run_until_complete(task))
-                task.add_done_callback(lambda future: check_exception(future.result()))
-                return task
-
-            return wrapper
-
-        return decorator
+    execute = DecompilerInterface.execute
 
     @property
     @execute()
@@ -86,16 +60,16 @@ class IDAInterface(DecompilerInterface):
         return idaapi.demangle_name(name, disable_mask, idaapi.DQT_FULL) or name
 
     @property
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def min_addr(self) -> Address:
         return self.addr(idaapi.cvar.inf.min_ea)
 
     @property
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def max_addr(self) -> Address:
         return self.addr(idaapi.cvar.inf.max_ea)
 
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def addr(self, addr: Optional[int] = None) -> Optional[Address]:
         if addr in (None, idaapi.BADADDR):
             return None
@@ -204,6 +178,8 @@ class IDAInterface(DecompilerInterface):
         function.frame_size = idaapi.get_frame_size(raw_func)
         function.signature = idc.get_type(function.start_addr)
         function.tinfo = idc.get_tinfo(function.start_addr)
+        if self.decompile(function) == 'None':
+            function.pseudocode = None
         return function
 
     @execute()
@@ -218,14 +194,14 @@ class IDAInterface(DecompilerInterface):
             raise SetTypeFailed(function.start_addr, tinfo)
         function.tinfo = tinfo
 
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def functions_in(self, span: AddressRange):
         # still too slow
         return [self.function(self.addr(func_t)) for func_t in idautils.Functions(span.start_addr, span.end_addr)]
 
     @execute()
     def decompile(self, function: Function) -> str:
-        if self._decompilerAvailable:
+        if self.decompiler_available:
             function.pseudocode = str(idaapi.decompile(function.start_addr))
             return function.pseudocode
         return ""

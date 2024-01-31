@@ -6,8 +6,6 @@ import appdirs
 from config import *
 from api.utils import loadall
 
-from model.compiler_explorer import CompilerManager
-
 
 @dataclass
 class ProjectInfo:

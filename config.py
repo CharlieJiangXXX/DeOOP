@@ -1,21 +1,23 @@
 import os
+import shutil
 
-root_dir = os.path.dirname(os.path.abspath(__file__))
+try:
+    import tomllib as toml_reader
+except ModuleNotFoundError:
+    import tomli as toml_reader
 
-# DeObfuscator + Optimized Perfecter
-PRETTY_NAME = "DeOOP"
-PLUGIN_NAME = "de-oop"
 
-# support a few models for ablation studies (raw codellama, fine-tuned codellama, chatgpt, gpt4, dirty, etc.)
+class Config:
+    def __init__(self):
+        self.root_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(self.root_dir, 'config.toml')
+        template_path = os.path.join(self.root_dir, 'config_template.toml')
+        if not os.path.exists(config_path):
+            shutil.copy(template_path, config_path)
+        with open(config_path, 'rb') as f:
+            config_data = toml_reader.load(f)
+        for k, v in config_data.items():
+            setattr(self, k, v)
 
-# verify when setting!
-# also, simply set openai.api_key
 
-# Set your API key here, or put it in the OPENAI_API_KEY environment variable.
-OPENAI_API_KEY = ""
-
-# Set your OpenAI Proxy here, or put it in the HTTPS_PROXY environment variable.
-# Such as: OPENAI_PROXY = http://127.0.0.1:7890
-OPENAI_PROXY = ""
-
-llm = None
+config = Config()

@@ -1,4 +1,5 @@
-import dataclasses
+import itertools
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import List, Callable, Tuple
 import asyncio
@@ -7,18 +8,6 @@ FunctionSegmenter = Callable[[str], List[str]]
 SegmentMerger = Callable[[List[str]], str]
 OutputVerifier = Callable[[str], Tuple[bool, str]]
 
-# scc: [a, b, c] (a, b) (a, c) (c, a)
-
-"""
-extern int c(arg1, arg2)
-
-def a:
-    c()
-    
-    
-def c:
-    a()
-"""
 
 def default_function_segmenter(function: str) -> List[str]:
     return [function]
@@ -32,10 +21,9 @@ def default_output_verifier(output: str) -> (bool, str):
     return True, output
 
 
-@dataclasses.dataclass
+@dataclass
 class Query:
     """
-    :var id: Unique identifier of the query, to be managed by the caller
     :var system: The system prompt providing identity, overall instructions, and examples.
     :var prompt: The instruction part of the user prompt. Note that external references (e.g. global
     variables, function declarations) should be added here, as they must be retained even when
@@ -47,7 +35,6 @@ class Query:
     system: List[str]
     prompt: str
     data: str
-    errors: List[str]  # errors or diffs
     top_p: float = 0.1
     temperature: float = 0.2
     parallel_cnt: int = 1
@@ -56,7 +43,7 @@ class Query:
     output_verifier: OutputVerifier = default_output_verifier
 
 
-class BaseModel(ABC):
+class LLM(ABC):
     """
     Base class for all language models supported. Subclasses must implement ``query``, define
     the max number of tokens supported by the model represented, the maximum concurrent queries
@@ -66,6 +53,7 @@ class BaseModel(ABC):
 
     # Output length allowed in relation to the query
     DATA_SCALE_FACTOR = 1.2
+    id_counter = itertools.count(0)
 
     def __init__(self) -> None:
         self._processQueue = asyncio.Queue()
@@ -73,6 +61,20 @@ class BaseModel(ABC):
         self._tempResponses = {}
         for _ in range(self.max_concurrent_queries):
             asyncio.create_task(self.worker())
+
+    def process_query(self, identifier: int, query: Query, future: asyncio.Future) -> None:
+        if identifier not in self._tempResponses:
+            self._tempResponses[identifier] = []
+        self._tempResponses[identifier].append(self.__query(query))
+        if not query.parallel_cnt:
+            future and future.get_loop().call_soon_threadsafe(future.set_result, self._tempResponses[identifier])
+            self._tempResponses.pop(identifier)
+
+    async def worker(self):
+        while True:
+            async with self._semaphore:
+                self.process_query(*await self._processQueue.get())
+                self._processQueue.task_done()
 
     @property
     def max_tokens_supported(self) -> int:
@@ -123,7 +125,7 @@ class BaseModel(ABC):
         """
         raise NotImplementedError
 
-    def enqueue_query(self, identifier: int, query: Query) -> asyncio.Future:
+    def enqueue_query(self, query: Query) -> asyncio.Future:
         """
         Enqueues queries to be run concurrently.
         :param identifier:
@@ -137,22 +139,9 @@ class BaseModel(ABC):
         If so, return True, as well as the output with minor modifications if needed.
         :return:
         """
+        identifier = next(self.id_counter)
         future = asyncio.Future()
         for _ in range(query.parallel_cnt):
             query.parallel_cnt -= 1
             self._processQueue.put_nowait((identifier, query, None if query.parallel_cnt else future))
         return future
-
-    def process_query(self, identifier: int, query: Query, future: asyncio.Future) -> None:
-        if identifier not in self._tempResponses:
-            self._tempResponses[identifier] = []
-        self._tempResponses[identifier].append(self.__query(query))
-        if not query.parallel_cnt:
-            future and future.set_result(self._tempResponses[identifier])
-            self._tempResponses.pop(identifier)
-
-    async def worker(self):
-        while True:
-            async with self._semaphore:
-                self.process_query(*await self._processQueue.get())
-                self._processQueue.task_done()

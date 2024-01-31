@@ -112,7 +112,7 @@ class Launcher:
         return self._instances[handle].keys()
 
     def _process_task(self, handle: SessionHandle, task: Callable[[], Any] = None,
-                      handler: Callable[[Any], None] = None, mode: TaskMode = TaskMode.SAFE, threaded: bool = False,
+                      handler: Callable[[Any], None] = None, mode: TaskMode = TaskMode.SAFE, priority: int = 2,
                       cmd: str = "",
                       path: str = "", env: Dict = None) -> Any:
         # TO-DO: add decompiler list option
@@ -129,7 +129,7 @@ class Launcher:
                             q = self._pendingTasks[handle]
                             future = asyncio.Future()
                             q.append((future, handler))
-                            proxy.enqueue_task(len(q) - 1, dill.dumps(task), mode.value, threaded)
+                            proxy.enqueue_task(priority, len(q) - 1, dill.dumps(task), mode.value)
                             return future
                         elif cmd:
                             proxy.execute_cmd(cmd)
@@ -139,8 +139,8 @@ class Launcher:
                     pass
 
     def enqueue_task(self, handle: SessionHandle, task: Callable[[], Any], handler: Callable[[Any], None] = None,
-                     mode: TaskMode = TaskMode.SAFE, threaded: bool = False) -> asyncio.Future:
-        return self._process_task(handle, task, handler, mode, threaded)
+                     mode: TaskMode = TaskMode.SAFE, priority: int = 2) -> asyncio.Future:
+        return self._process_task(handle, task, handler, mode, priority)
 
     def execute_cmd(self, handle: SessionHandle, cmd: str) -> None:
         self._process_task(handle, cmd=cmd)

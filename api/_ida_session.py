@@ -1,6 +1,7 @@
 import os
 import threading
-from queue import Queue
+import uuid
+from queue import PriorityQueue
 from typing import Any, Generator, Dict
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
@@ -23,7 +24,8 @@ class IDASession:
         self._console = console
         self._receiverProxy = xmlrpc.client.ServerProxy(
             f"http://localhost:{int(os.environ['DEOOP_IDA_RECEIVER_PORT'])}/")
-        self._taskQueue = Queue()
+        self._taskQueue = PriorityQueue()
+        self._tasks = {}
 
         with SimpleXMLRPCServer(("localhost", 0), allow_none=True) as server:
             self.server = server
@@ -48,18 +50,25 @@ class IDASession:
 
     def process_task(self):
         if not self._taskQueue.empty():
-            task_id, task_info, mode = self._taskQueue.get()
-            self.execute_task(task_id, task_info, mode)
+            (priority, task_id), task_info, mode, unique_id = self._taskQueue.get()
+            if self._tasks.get(unique_id, (False,))[0]:
+                if mode == -1:
+                    threading.Thread(target=self.execute_task, args=(task_id, task_info, -1)).start()
+                else:
+                    self.execute_task(task_id, task_info, mode)
+            del self._tasks[unique_id]
 
-    def enqueue_task(self, task_id: int, task_info: xmlrpc.client.Binary, mode: int, threaded: bool) -> None:
-        """
-        Note: it is possible to run tasks that start new threads. But beware that
-        running thread.join() immediately afterward would cause IDA to hang if
-        the task is not safe (i.e. execute_sync is involved), possibly
-        due to a deadlock situation. Instead, the user should implement a form of
-        signaling mechanism to wait until the thread has finished to join.
-        """
-        self._taskQueue.put((task_id, task_info, mode))
+    def enqueue_task(self, priority: int, task_id: int, task_info: xmlrpc.client.Binary, mode: int) -> None:
+        unique_id = uuid.uuid4()
+        self._taskQueue.put(((priority, task_id), task_info, mode, unique_id))
+        self._tasks[unique_id] = (True, priority, task_id, task_info, mode)
+
+    def expedite(self, task_id: int) -> None:
+        for unique_id, (priority, active, saved_id, task_info, mode) in self._tasks.items():
+            if saved_id == task_id and active and priority > 0:
+                self.enqueue_task(0, task_id, task_info, mode)
+                self._tasks[unique_id] = (False, saved_id, task_info, mode)
+                break
 
     def execute_task(self, task_id: int, task_info: xmlrpc.client.Binary, mode: int):
         func = dill.loads(task_info.data)

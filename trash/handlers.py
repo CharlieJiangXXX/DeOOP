@@ -4,14 +4,7 @@ import re
 import textwrap
 import os
 
-import ida_hexrays
-import idaapi
-
 import config
-from sark import *
-
-
-
 
 
 class PerfectHandler(MenuHandler):

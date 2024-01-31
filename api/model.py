@@ -1,7 +1,8 @@
 import itertools
 from typing import Dict, Optional
 
-from .base_model import *
+from api.artifacts.function import Function
+from api.models.base_model import *
 
 QueryCompleteCallback = Callable[[List[str]], None]
 
@@ -34,29 +35,17 @@ class LLMController:
     # if we are to train it, supervise with other models
     # gotta implement (with decorators?) running every method multiple times and picking the best result
 
-    id_counter = itertools.count(0)
 
-    def __init__(self, models: List[BaseModel]) -> None:
-        self._models = [model for model in models if isinstance(model, BaseModel)]
-
-    def query(self, query: Query, handler: QueryCompleteCallback, model: Optional[BaseModel] = None) -> asyncio.Future:
-        if not model or model not in self._models:
-            model = self._models[0]
-
-        future = model.enqueue_query(next(self.id_counter), query)
-        #future.add_done_callback(handler)
-        return future
+    async def resolve_errors(self, errs: str, defs: str, func: Function) -> bool:
+        # make sure to filter out the externs before
+        # asm is not invovled here, which is good. just give the compiler defs and the current func,
+        # which would be updated iteratively
+        pass
 
     def perfect(self, callback: QueryCompleteCallback, defs: str, func: str) -> bool:
         """
         Note: compiler provenance recovery is left for future work
 
-        Compilability
-        1. Remove redundant intermediate variables in the supplied snippet. (ask, remove, self-critique)
-        2. Expand unnecessary goto statements. (ask to identify gotos, then remove)
-        3. Fix missing headers (ask if there are missing decs, proceed to define, repeat)
-        4. Generate GCC compilable C++ code of the functions. (check + process, where only reply fixed source code)
-        5. Please fix the following compilation errors in the source code: {compiler_error} {pseudocode} (iterative)
 
         Equivalence
         6. (algorithmic) Compile & disassemble, diff against original binary assembly -> intraprocedual analysis to

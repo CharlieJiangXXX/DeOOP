@@ -1,13 +1,9 @@
 from function_retriever import *
 from fusion_view import *
 
-import ida_hexrays
-
-from sark import *
-
 import config
 from common import concat
-from model.compiler_explorer import CompilerManager
+from compiler.client import AsyncCompilerClient
 
 
 class DummyHandler(ActionHandler):
@@ -75,7 +71,7 @@ class DeOOPPlugin(ida_api.plugin_t):
         self._manager.add_handlers(concat("Edit", config.PRETTY_NAME), [RetrieveAllHandler])
         self._manager.add_handlers(concat("View", "Open subviews"), [ShowFusion])
 
-        self._compiler = CompilerManager(["c", "c++"])
+        self._compiler = AsyncCompilerClient(["c", "c++"])
 
 
         # set compiler - options

@@ -1,8 +1,6 @@
-from typing import List, Optional, Type, Iterator, LiteralString, Dict, Set
+from typing import List, Optional, Type, Dict, Set
 
-import idaapi
 import sark.qt
-import os
 
 import config
 from common import concat

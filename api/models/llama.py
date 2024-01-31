@@ -20,7 +20,7 @@ B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
 SPECIAL_TAGS = [B_INST, E_INST, "<<SYS>>", "<</SYS>>"]
 
 
-class CodeLlama(BaseModel):
+class CodeLlama(LLM):
     def __init__(self, model_dir: str, model_size: int = 34) -> None:
         super().__init__()
         self._modelSize = 0
@@ -79,7 +79,7 @@ class CodeLlama(BaseModel):
         full_prompt = f"<s> {(B_INST + sys + prompt + data + E_INST).strip()}"
 
         input_ids = self.tokenizer(full_prompt, return_tensors="pt", add_special_tokens=False).to("cuda")["input_ids"]
-        max_new = len(input_ids[0]) * self.DATA_SCALE_FACTOR
+        max_new = int(len(input_ids[0]) * self.DATA_SCALE_FACTOR)
         outputs = self.model.generate(input_ids, do_sample=True,
                                       top_p=top_p, max_new_tokens=max_new,
                                       temperature=temperature)[0].to("cpu")

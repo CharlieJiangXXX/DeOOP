@@ -1,17 +1,99 @@
 import itertools
-from typing import Optional, Dict, List
+import os
+from functools import cached_property, lru_cache, wraps
+from typing import Optional, Dict, List, Generator, Callable, Any
 
 import networkx as nx
 from .artifacts.line import Line
 from .artifacts.address import Patch, Address
 from .artifacts.function import Function
 from .exceptions import NoFunction
-from .utils import AddressRange, Xref
+from .launcher import Launcher
+from .nested_asyncio import NestedAsyncIO
+from .utils import AddressRange, Xref, ExceptionWrapperProtocol
+
+SCC = List[Function]
 
 
 class DecompilerInterface:
     def __init__(self, handle: int):
         self._handle = handle
+        self._functionSCCMapping = {}
+        self._tasks = {}
+        self._pid = os.getpid()
+
+    def is_local(self):
+        return os.getpid() == self._pid
+
+    @staticmethod
+    def execute(wait: bool = True, handler: Callable[[Any], None] = None,
+                mode: int = Launcher.TaskMode.SAFE, priority: int = 2):
+        def decorator(func):
+            @wraps(func)
+            def wrapper(self, *args, **kwargs):
+                if not self.is_local():
+                    return func(self, *args, **kwargs)
+
+                launcher = Launcher.instance()
+                task = launcher.enqueue_task(self._handle, lambda: func(self, *args, **kwargs),
+                                             handler, mode, priority)
+
+                def check_exception(res):
+                    out, exception = res
+                    if isinstance(exception, ExceptionWrapperProtocol):
+                        class AggregatedException(type(exception.e)):
+                            def __init__(self, *a):
+                                super().__init__(*a)
+                                self.remote_traceback = exception.traceback
+
+                            def __str__(self):
+                                original_message = super().__str__()
+                                return (f"{original_message}\n\n"
+                                        f"Remote Traceback (most recent call last):\n"
+                                        f"{self.remote_traceback}")
+
+                        raise AggregatedException(*exception.e.args)
+                    return out
+
+                if wait:
+                    loop = task.get_loop()
+                    if loop.is_running():
+                        with NestedAsyncIO(loop):
+                            result = loop.run_until_complete(task)
+                            return check_exception(result)
+                    return check_exception(task.get_loop().run_until_complete(task))
+                task.add_done_callback(lambda future: check_exception(future.result()))
+                return task
+
+            return wrapper
+
+        return decorator
+
+    @staticmethod
+    def local(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            if self.is_local():
+                raise Exception("This function must be called within the local process")
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    @staticmethod
+    def remote(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            if not self.is_local():
+                raise Exception("This function must be called remotely")
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
+    @staticmethod
+    def shared(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            pass
 
     @property
     def binary_base_addr(self) -> int:
@@ -57,6 +139,10 @@ class DecompilerInterface:
     @property
     def max_addr(self) -> Address:
         raise NotImplementedError
+
+    # artifact_retriever decorator that marks all functions that should be run inside
+    # of the local process. these would all have sync and async counterparts that need
+    # to be overriden. we also need to write something that could be safely called remotely
 
     def addr(self, addr: Optional[int] = None) -> Optional[Address]:
         raise NotImplementedError
@@ -110,6 +196,7 @@ class DecompilerInterface:
     def function(self, addr: Address) -> Function:
         pass
 
+    @cached_property
     def call_graph(self) -> nx.DiGraph:
         """Export IDB to a NetworkX graph.
 
@@ -132,10 +219,43 @@ class DecompilerInterface:
 
         return digraph
 
+    @cached_property
     def condensed_graph(self) -> nx.DiGraph:
-        # Condense call graph into SCCs; no need to sort separately since
-        # the condensation is already in lexicographical topological order
-        return nx.condensation(self.call_graph())
+        # No need to sort separately since the condensation is
+        # already in lexicographical topological order
+        graph = nx.condensation(self.call_graph)
+        self._functionSCCMapping = {
+            member: scc_id
+            for scc_id, data in graph.nodes.data()
+            for member in data["members"]
+        }
+        return graph
+
+    @property
+    def sccs(self) -> Generator[SCC, None, None]:
+        for i, scc in self.condensed_graph.nodes.data():
+            yield [self.function(self.addr(func)) for func in scc["members"]]
+
+    def scc_of(self, function: Function) -> SCC:
+        if scc_idx := self._functionSCCMapping.get(function.start_addr, None):
+            return [self.function(self.addr(addr)) for addr in self.condensed_graph[scc_idx]["members"]]
+        return []
+
+    def function_tree(self, function: Function) -> nx.DiGraph:
+        def get_scc():
+            for s in self.condensed_graph.nodes.data():
+                if ea in s[1]["members"]:
+                    return s
+            return None
+
+        scc = get_scc()
+        if not scc:
+            raise Exception("No SCC matching ea!")
+
+        bfs_tree = nx.bfs_tree(self.condensed_graph, scc[0])
+        for node in bfs_tree.nodes:
+            bfs_tree.nodes[node]["members"] = self.condensed_graph.nodes[node]["members"]
+        return bfs_tree
 
     def functions_in(self, span: AddressRange):
         """Get all functions in range.

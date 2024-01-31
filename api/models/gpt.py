@@ -5,7 +5,7 @@ import tiktoken
 from .base_model import *
 
 
-class OpenAIGPT(BaseModel):
+class OpenAIGPT(LLM):
     gpt_models = {
         "gpt-4-1106-preview": 32768,
         "gpt-4-vision-preview": 32768,
@@ -53,10 +53,10 @@ class OpenAIGPT(BaseModel):
         return len(self._encoding.encode(query))
 
     def _query(self, system: List[str], prompt: str, data: str, top_p: float, temperature: float) -> str:
-        max_new = len(data) * self.DATA_SCALE_FACTOR
+        max_new = int(len(data) * self.DATA_SCALE_FACTOR)
 
         message = [{"role": "system", "content": prompt} for prompt in system]
-        message.append({"role": "user", "content": prompt})
+        message.append({"role": "user", "content": f"{prompt}{data}"})
 
         try:
             response = self._client.chat.completions.create(model=self.name,
@@ -76,5 +76,4 @@ class OpenAIGPT(BaseModel):
             print("{model} could not complete the request: {error}".format(model=self._modelName, error=str(e)))
         except Exception as e:
             print(f"{type(e)}: {str(e)}")
-        finally:
-            return ""
+        return ""
