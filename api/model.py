@@ -42,50 +42,6 @@ class LLMController:
         # which would be updated iteratively
         pass
 
-    def perfect(self, callback: QueryCompleteCallback, defs: str, func: str) -> bool:
-        """
-        Note: compiler provenance recovery is left for future work
-
-
-        Equivalence
-        6. (algorithmic) Compile & disassemble, diff against original binary assembly -> intraprocedual analysis to
-        specify exact places to be changed. "Highlight" by asking first more important changes (structural changes),
-        based on how Decomperson categorized them in their UI.
-        Types to be considered:
-            Control Flow: Constructs that redirect the execution of a program, such as conditionals, loops, and exceptions.
-            Declarations: Definitions of new variables, typically locals. We classify these separately from other statements
-            because they change the layout of a function’s stack frame.
-            Functions: Changes that alter the signature of a function, such as changes to the return type, name, or arguments.
-            Statements: Typical imperative programming statements, like assignments, increments, and function calls.
-            Types: Constructs that define custom data types, or edits to member variables. (note that we gotta look
-            deeper into this, because big types should not be modified, whereas "temp" types should be created)
-        7. Iteratively send each difference (pair of code & assembly) to model, also provide Jaccard similarity
-        coefficient of bin diffing to give the model a sense of progress.
-        Consider using function API of OpenAI (bound model to certain actions, prevents hallucination)
-
-        Remarks:
-        - replace absolute memory references with symbols / generic identifiers to avoid diff complaints
-        - give the model some rewards (e.g. adjust weight of layer?) when it comes up with regional perfect decompilation
-        - clarify on what exact types of operations are allowed, and make sure edits happen one (or those of one type) at
-        a time
-        - provide function symbol (for exported ones) if possible!
-        - maybe prompt for human input if model cannot make correct changes after a while
-        - decompilation on binaries with O-level > 0 is a 1-to-n mapping; that is, even after semantic equivalence,
-        changes can still be made to further streamline/simplify the code, as all those would be abstracted away upon
-        compilation. This part needs further exploration (e.g. switch case optims, arithmetic optims), maybe view as
-        separate phase, with correct decompilation as input, stripped source code as criterion, all while making sure the code
-        still matches assembly
-
-        Feature was developed based upon:
-        1. https://arxiv.org/pdf/2310.06530.pdf
-        2. https://www.usenix.org/system/files/sec22-burk.pdf
-        Utilize methods from Decomperson and "Refining Decompiled C Code with Large Language Models" to augment
-        preprocessed pseudocode to ensure it is a perfect decompilation. The model has a conversation with a compiler
-        oracle until a configurable correctness is
-        reached.
-        :return: bool
-        """
-
 
 
     # give naming convention from the outside

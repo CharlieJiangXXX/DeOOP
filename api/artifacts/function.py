@@ -10,13 +10,18 @@ class Function(Artifact):
         "_end_addr",
         "comments",
         "xrefs",
+        "lvars",
         "lines",
         "frame_size",
         "flags",
         "signature",
         "tinfo",
         "comparator",
-        "pseudocode"
+        "pseudocode",
+        "external",
+        "init",
+        "fini",
+        "plt"
     )
 
     def __init__(self, addr: Address, last_change: Any = None):
@@ -26,12 +31,17 @@ class Function(Artifact):
         self._end_addr = None
         self.comments = {}
         self.xrefs = {"from": [], "to": []}
+        self.lvars: List[str] = []
         self.lines: List[Line] = []
         self.frame_size = 0
         self.flags = 0
         self.signature = ""
         self.tinfo = None
         self.comparator: Callable[[int, int], bool] = None
+        self.external = False
+        self.init = False
+        self.fini = False
+        self.plt = False
 
         self.pseudocode = ""
 

@@ -1,20 +1,16 @@
-import re
-
 import aiohttp
 import asyncio
 
-from typing import Dict, List, Optional, Set, Tuple, Any
-
+from typing import Dict, List, Optional, Set, Tuple
 from aiohttp import ContentTypeError
 
 from .types.compiler_arguments import PossibleArguments
 from .types.compiler_info import CompilerInfo
-from .types.formatter import FormatterInfo
+from .types.formatter import FormatterInfo, FormattingRequest, FormattingResponse
 from .types.languages import LanguageKey, Language
 from .types.libraries import Library
 from .types.asm_docs import AssemblyDocumentationRequest, AssemblyDocumentationResponse
 from .types.compilation.compilation import CompilationRequest, CompilationResult
-from .types.result_line import ResultLine
 
 
 class CompilerExplorerAPI:
@@ -30,24 +26,6 @@ class CompilerExplorerAPI:
         """
         return cls._post("/api/shortener", client_state).json()["url"]
 
-    @classmethod
-    def get_formats(cls) -> List[FormatterInfo]:
-        """GET /api/formats - return available code formatters."""
-        return [FormatterInfo(**format) for format in cls._get("/api/formats", True).json()]
-
-    @classmethod
-    def format_code(cls, formatter, source, base, use_spaces, tab_width):
-        """
-        POST /api/format/<formatter> - perform a formatter run.
-        """
-        data = {
-            "source": source,
-            "base": base,
-            "useSpaces": use_spaces,
-            "tabWidth": tab_width
-        }
-        return cls._post(f"/api/format/{formatter}", data)
-
 
 def non_optional_fields(cls):
     return list(map(lambda item: item[0], filter(lambda item: item[1].is_required, cls.model_fields.items())))
@@ -57,9 +35,12 @@ class AsyncCompilerClient:
     BASE_URL = "https://godbolt.org/api"
 
     def __init__(self, lang_support: Set[LanguageKey]):
+        self.version = None
+        self.releaseBuild = None
         self.session = None
         self.languages = None
         self.supported_languages = lang_support
+        self.formats = None
 
     async def _get(self, endpoint: str, params: Dict = None, only_json: bool = False) -> str | Dict:
         """Helper method for GET requests."""
@@ -108,6 +89,7 @@ class AsyncCompilerClient:
                  for lang in self.supported_languages]
             )
         }
+        self.formats = await self._get_formats()
         self.version, self.releaseBuild = await self._get_version_info()
 
     async def stop(self):
@@ -140,6 +122,11 @@ class AsyncCompilerClient:
         libraries = await self._get(f"/libraries/{lang.value}", only_json=True)
         return [Library.model_validate(lib) for lib in libraries]
 
+    async def _get_formats(self) -> List[FormatterInfo]:
+        """GET /api/formats - return available code formatters."""
+        formats = await self._get("/formats", only_json=True)
+        return [FormatterInfo.model_validate(format) for format in formats]
+
     async def _get_version_info(self) -> Tuple[str, str]:
         return await asyncio.gather(self._get(f"/version"), self._get(f"/releaseBuild"))
 
@@ -148,10 +135,11 @@ class AsyncCompilerClient:
         result = await self._get(f"/{request.instructionSet}/{request.opcode}")
         return AssemblyDocumentationResponse.model_validate(result)
 
-    async def compile(self, request: CompilationRequest, parse: bool = True) -> Optional[CompilationResult]:
+    async def compile(self, request: CompilationRequest) -> Optional[CompilationResult]:
         """
         POST /api/compiler/<compiler-id>/compile - perform a compilation.
         """
+
         def check_compiler_in_lang(_compiler: str, _lang: LanguageKey):
             return next(filter(lambda info: info.id == _compiler, self.languages[_lang]['compilers']), None)
 
@@ -161,8 +149,18 @@ class AsyncCompilerClient:
             return None
 
         resp = await self._post(f"/compiler/{request.compiler}/compile",
-                                  request.model_dump_json(by_alias=True, exclude_none=True))
+                                request.model_dump_json(by_alias=True, exclude_none=True))
         return CompilationResult.model_validate(resp)
+
+    async def format(self, request: FormattingRequest) -> Optional[FormattingResponse]:
+        """
+        POST /api/format/<formatter> - perform a formatter run.
+        """
+        if form := next(filter(lambda f: f.name == request.formatterId, self.formats), None):
+            if request.base in form.styles:
+                resp = await self._post(f"/format/{request.formatterId}", request.model_dump_json(exclude_none=True))
+                return FormattingResponse.model_validate(resp)
+        return None
 
     def cmake(self):
         pass

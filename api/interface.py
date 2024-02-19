@@ -4,6 +4,8 @@ from functools import cached_property, lru_cache, wraps
 from typing import Optional, Dict, List, Generator, Callable, Any
 
 import networkx as nx
+
+from .artifacts.artifact import Artifact
 from .artifacts.line import Line
 from .artifacts.address import Patch, Address
 from .artifacts.function import Function

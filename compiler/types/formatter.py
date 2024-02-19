@@ -1,5 +1,5 @@
 from typing import List, Optional, Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class FormatterInfo(BaseModel):
@@ -12,11 +12,12 @@ class FormatterInfo(BaseModel):
     versionArgument: Optional[str] = None
     versionReExp: Optional[str] = None
 
-
-class FormatOptions(BaseModel):
-    useSpaces: bool
-    tabWidth: int
-    baseStyle: str
+    @field_validator("name")
+    @classmethod
+    def patch_clang(cls, v):
+        if v == "clang-format":
+            return "clangformat"
+        return v
 
 
 FormatBase = Literal['Google', 'LLVM', 'Mozilla', 'Chromium', 'WebKit', 'Microsoft', 'GNU']
@@ -26,8 +27,15 @@ class FormattingRequest(BaseModel):
     source: str
     formatterId: str
     base: FormatBase | Literal['__DefaultStyle']
-    tabWidth: int
-    useSpaces: bool
+    tabWidth: int = 4
+    useSpaces: bool = True
+
+    @field_validator("formatterId", mode="before")
+    @classmethod
+    def patch_clang(cls, v):
+        if v == "clang-format":
+            return "clangformat"
+        return v
 
 
 class FormattingResponse(BaseModel):

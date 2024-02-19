@@ -1,6 +1,4 @@
-import functools
-import inspect
-from typing import Callable, Any, Optional, List
+from typing import Optional, List
 
 import networkx as nx
 
@@ -10,7 +8,7 @@ from ..artifacts.line import Line
 from ..artifacts.function import Function
 from ..interface import DecompilerInterface
 from ..artifacts.address import Address
-from ..utils import Xref, AddressRange, ExceptionWrapperProtocol
+from ..utils import Xref, AddressRange
 from ..launcher import Launcher
 from ..exceptions import SetTypeFailed, NoFunction
 
@@ -176,10 +174,27 @@ class IDAInterface(DecompilerInterface):
         function.comments["regular"] = idaapi.get_func_cmt(raw_func, False)
         function.comments["repeat"] = idaapi.get_func_cmt(raw_func, True)
         function.frame_size = idaapi.get_frame_size(raw_func)
+        if function.frame_size and (frame := idaapi.get_frame(raw_func)):
+            idx = 0
+            for offset, name, size in idautils.StructMembers(frame.id):
+                prefix = "var_"
+                if name.startswith(prefix):
+                    function.lvars.append(f"-{name[len(prefix):]}h")
+                    tinfo = idaapi.tinfo_t()
+                    idaapi.get_member_tinfo(tinfo, frame.members[idx])
+                    print("tinfo")
+                    print(tinfo.dstr())
+                    idx += 1
         function.signature = idc.get_type(function.start_addr)
         function.tinfo = idc.get_tinfo(function.start_addr)
-        if self.decompile(function) == 'None':
+        if self.decompile(function) in [None, 'None']:
             function.pseudocode = None
+        function.external = bool(raw_func.flags & idaapi.FUNC_THUNK
+                                 or idaapi.segtype(function.start_addr) == idaapi.SEG_XTRN)
+        seg_name = idaapi.get_segm_name(idaapi.getseg(function.start_addr))
+        function.init = "init" in seg_name
+        function.fini = "fini" in seg_name
+        function.plt = "plt" in seg_name
         return function
 
     @execute()
