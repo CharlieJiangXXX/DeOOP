@@ -72,6 +72,7 @@ class LanguageKey(Enum):
     vala = 'vala'
     vb = 'vb'
     zig = 'zig'
+    spice = 'spice'
 
 
 class Language(BaseModel):

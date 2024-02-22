@@ -5,7 +5,7 @@ import networkx as nx
 from .flowchart import FlowChart, BasicBlock
 from .xref import IDAXrefType
 from ..artifacts.line import Line
-from ..artifacts.function import Function
+from ..artifacts.function import Function, Variable
 from ..interface import DecompilerInterface
 from ..artifacts.address import Address
 from ..utils import Xref, AddressRange
@@ -90,12 +90,14 @@ class IDAInterface(DecompilerInterface):
 
     @execute()
     def xrefs_to(self, addr: Address) -> List[Xref]:
-        return list(map(lambda xref: Xref(self.addr(xref.frm), self.addr(xref.to), xref.iscode, xref.user, IDAXrefType(xref.type)),
+        return list(map(lambda xref: Xref(self.addr(xref.frm), self.addr(xref.to), xref.iscode, xref.user,
+                                          IDAXrefType(xref.type)),
                         idautils.XrefsTo(addr.value)))
 
     @execute()
     def xrefs_from(self, addr: Address) -> List[Xref]:
-        return list(map(lambda xref: Xref(self.addr(xref.frm), self.addr(xref.to), xref.iscode, xref.user, IDAXrefType(xref.type)),
+        return list(map(lambda xref: Xref(self.addr(xref.frm), self.addr(xref.to), xref.iscode, xref.user,
+                                          IDAXrefType(xref.type)),
                         idautils.XrefsFrom(addr.value)))
 
     @staticmethod
@@ -173,18 +175,28 @@ class IDAInterface(DecompilerInterface):
                                   if not (xref.type.is_flow or (xref.to in function and xref.iscode))]
         function.comments["regular"] = idaapi.get_func_cmt(raw_func, False)
         function.comments["repeat"] = idaapi.get_func_cmt(raw_func, True)
-        function.frame_size = idaapi.get_frame_size(raw_func)
-        if function.frame_size and (frame := idaapi.get_frame(raw_func)):
+        if frame := idaapi.get_frame(raw_func):
             idx = 0
+            lvars = {}
+
             for offset, name, size in idautils.StructMembers(frame.id):
-                prefix = "var_"
-                if name.startswith(prefix):
-                    function.lvars.append(f"-{name[len(prefix):]}h")
-                    tinfo = idaapi.tinfo_t()
-                    idaapi.get_member_tinfo(tinfo, frame.members[idx])
-                    print("tinfo")
-                    print(tinfo.dstr())
-                    idx += 1
+                lvars[name] = Variable(offset, name, size)
+                member = frame.members[idx]
+                tinfo = idaapi.tinfo_t()
+                idaapi.get_or_guess_member_tinfo(tinfo, member)
+                lvars[name].type = tinfo.dstr()
+                idaapi.build_stkvar_xrefs(xrefs := idaapi.xreflist_t(), raw_func, member)
+                lvars[name].xrefs = list(map(lambda xref: Xref(self.addr(xref.ea), self.addr(None), False, False,
+                                                               IDAXrefType(xref.type)), xrefs))
+
+            if ret := lvars.pop(' r', None):
+                function.ret_offset = ret.offset
+            if fs := lvars.pop(' s', None):
+                function.frame_size = fs.offset
+                for key in lvars:
+                    lvars[key].offset -= fs.offset
+            function.lvars = lvars.values()
+
         function.signature = idc.get_type(function.start_addr)
         function.tinfo = idc.get_tinfo(function.start_addr)
         if self.decompile(function) in [None, 'None']:
@@ -224,7 +236,8 @@ class IDAInterface(DecompilerInterface):
     @execute()
     def flow_chart(self, function: Function, flags: int = 0) -> FlowChart:
         flow_chart = FlowChart(function)
-        raw_q = qflow_chart_t("", self._raw_func(function.addr), flow_chart.func.start_addr, flow_chart.func.end_addr, flags)
+        raw_q = qflow_chart_t("", self._raw_func(function.addr), flow_chart.func.start_addr, flow_chart.func.end_addr,
+                              flags)
         flow_chart.size = raw_q.size()
         flow_chart._q = raw_q
         flow_chart.flags = raw_q.flags

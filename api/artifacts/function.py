@@ -1,5 +1,6 @@
 from .artifact import Artifact
 from .address import Address, HasAddr
+from .variable import Variable
 from typing import Any, List, Union, Callable
 from .line import Line
 
@@ -10,9 +11,10 @@ class Function(Artifact):
         "_end_addr",
         "comments",
         "xrefs",
+        "frame_size",
+        "ret_offset",
         "lvars",
         "lines",
-        "frame_size",
         "flags",
         "signature",
         "tinfo",
@@ -31,9 +33,10 @@ class Function(Artifact):
         self._end_addr = None
         self.comments = {}
         self.xrefs = {"from": [], "to": []}
-        self.lvars: List[str] = []
-        self.lines: List[Line] = []
         self.frame_size = 0
+        self.ret_offset = 0
+        self.lvars: List[Variable] = []
+        self.lines: List[Line] = []
         self.flags = 0
         self.signature = ""
         self.tinfo = None

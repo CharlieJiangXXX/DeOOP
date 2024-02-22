@@ -195,9 +195,9 @@ class Session:
                               "C code. When you augment pseudocode based on error messages, you only fix the relevant "
                               "components since you like to be efficient."],
                       prompt="Please modify the source code so that these compilation errors would be resolved. If the "
-                             "errors are caused by missing headers, please explicitly out the name of the library in the"
-                             " first line of your response. Afterwards output the modified function directly - NO EXPLANATION"
-                             " IS NEEDED!!!",
+                             "errors are caused by missing headers, please explicitly out the name of the library in "
+                             "the first line of your response. Afterwards output the modified function directly - NO "
+                             "EXPLANATION IS NEEDED!!!",
                       data=f"Source code:{function.pseudocode}\n"
                            f"Errors: {errs}"
                       )
