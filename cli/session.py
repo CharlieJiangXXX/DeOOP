@@ -137,8 +137,6 @@ class Session:
                 or self._source and function.name not in self.functions_in_src:
             return True
 
-        print("lvars")
-        print(function.lvars)
         while True:
             code, result = await self.compile(function)
             match code:
@@ -194,10 +192,11 @@ class Session:
         query = Query(system=["You are an expert reverse engineering capable of converting pseudocode into compilable "
                               "C code. When you augment pseudocode based on error messages, you only fix the relevant "
                               "components since you like to be efficient."],
-                      prompt="Please modify the source code so that these compilation errors would be resolved. If the "
-                             "errors are caused by missing headers, please explicitly out the name of the library in "
-                             "the first line of your response. Afterwards output the modified function directly - NO "
-                             "EXPLANATION IS NEEDED!!!",
+                      prompt="Please modify the source code so that these compilation errors would be resolved."# If the "
+                             #"errors are caused by missing headers, please explicitly out the name of the library in "
+                             #"the first line of your response. Afterwards" 
+                             "Output the modified function directly - NO EXPLANATION IS NEEDED!!! Don't mark up the code"
+                             "block, respond with plain code!",
                       data=f"Source code:{function.pseudocode}\n"
                            f"Errors: {errs}"
                       )
@@ -217,6 +216,8 @@ class Session:
             for child in node.get_children():
                 find_nodes(file, child, depth + 1)
 
+        ida_interface: IDAInterface = self._controller.interfaces["ida"]
+        print(ida_interface.cfg(function))
         # info available: disasm (would need parsing) / original asm (for testing), compilable pseudo, pseudo asm
         # find diffs in asm
         # data flow analysis

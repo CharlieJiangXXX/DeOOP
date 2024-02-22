@@ -52,7 +52,6 @@ class FlowChart:
         self.size = 0
         self.flags = -1
         self.num_proper = 0
-        self._q = None
         self.blocks: List[BasicBlock] = []
 
     def __iter__(self):

@@ -233,18 +233,18 @@ class IDAInterface(DecompilerInterface):
             return function.pseudocode
         return ""
 
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def flow_chart(self, function: Function, flags: int = 0) -> FlowChart:
         flow_chart = FlowChart(function)
         raw_q = qflow_chart_t("", self._raw_func(function.addr), flow_chart.func.start_addr, flow_chart.func.end_addr,
                               flags)
         flow_chart.size = raw_q.size()
-        flow_chart._q = raw_q
         flow_chart.flags = raw_q.flags
         flow_chart.num_proper = raw_q.nproper
 
-        flow_chart.items = [BasicBlock(i, self.addr_range(raw_q[i].start_ea, raw_q[i].end_ea), raw_q.calc_block_type(i))
-                            for i in range(flow_chart.size)]
+        flow_chart.blocks = [
+            BasicBlock(i, self.addr_range(raw_q[i].start_ea, raw_q[i].end_ea), raw_q.calc_block_type(i))
+            for i in range(flow_chart.size)]
 
         for block in flow_chart:
             block.preds = [flow_chart[raw_q.pred(block.index, i)] for i in range(raw_q.npred(block.index))]
@@ -258,9 +258,9 @@ class IDAInterface(DecompilerInterface):
             # Make sure all nodes are added (including edge-less nodes)
             graph.add_node(block.range.start_addr)
 
-            for pred in block.preds():
+            for pred in block.preds:
                 graph.add_edge(pred.range.start_addr, block.range.start_addr)
-            for succ in block.succs():
+            for succ in block.succs:
                 graph.add_edge(block.range.start_addr, succ.range.start_addr)
 
         return graph
