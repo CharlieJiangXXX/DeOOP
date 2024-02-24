@@ -1,9 +1,9 @@
-from typing import Generic, TypeVar, List, Dict
-from pydantic import BaseModel
+from typing import Generic, TypeVar, List, Dict, Annotated
+from pydantic import BaseModel, Field
 
 
 class EdgeDescriptor(BaseModel):
-    from_: str
+    from_: Annotated[str, Field(alias='from')]
     to: str
     arrows: str
     color: str
