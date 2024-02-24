@@ -20,6 +20,7 @@ class ExceptionWrapper:
 
 class IDASession:
     def __init__(self, handle: int, console: bool = False):
+        idaapi.auto_wait()
         self._handle = handle
         self._console = console
         self._receiverProxy = xmlrpc.client.ServerProxy(
