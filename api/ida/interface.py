@@ -1,3 +1,5 @@
+import base64
+from functools import cached_property
 from typing import Optional, List
 
 import networkx as nx
@@ -29,6 +31,34 @@ class IDAInterface(DecompilerInterface):
         self._decompilerAvailable: Optional[bool] = None
 
     execute = DecompilerInterface.execute
+
+    @cached_property
+    @execute(mode=Launcher.TaskMode.READ)
+    def byte_size(self) -> int:
+        """Get the native word size in normal 8-bit bytes."""
+        info = idaapi.get_inf_structure()
+        if info.is_64bit():
+            return 8
+        elif info.is_32bit():
+            return 4
+        else:
+            return 2
+
+    @cached_property
+    @execute(mode=Launcher.TaskMode.READ)
+    def procname(self):
+        """Convert the arch and bitness to a std. format."""
+        procname = idaapi.get_inf_structure().procname.lower()
+        bitness = self.byte_size * 8
+        if procname == 'mipsb':
+            return "mips-{}".format(bitness)
+        if procname == "arm":
+            return "arm-{}".format(bitness)
+        if "pc" in procname:
+            return "x86-{}".format(bitness)
+        raise RuntimeError(
+            "[!] Arch not supported ({}, {})".format(
+                procname, bitness))
 
     @property
     @execute()
@@ -105,7 +135,7 @@ class IDAInterface(DecompilerInterface):
     def is_string(addr: int) -> bool:
         return idc.get_str_type(addr) not in (None, -1)
 
-    @execute()
+    @execute(mode=Launcher.TaskMode.READ)
     def line(self, addr: int) -> Line:
         line = Line(self.addr(idaapi.get_item_head(addr)))
         line.comments["regular"] = idaapi.get_cmt(line.start_addr, False)
@@ -252,11 +282,17 @@ class IDAInterface(DecompilerInterface):
 
         return flow_chart
 
+    @execute(mode=Launcher.TaskMode.READ)
+    def bytes(self, address: Address, size: int) -> bytes:
+        return idc.get_bytes(address.value, size)
+
     def cfg(self, function: Function) -> nx.DiGraph:
         graph = nx.DiGraph()
         for block in self.flow_chart(function):
-            # Make sure all nodes are added (including edge-less nodes)
-            graph.add_node(block.range.start_addr)
+            src = self.cs_disassemble(block.range.start, block.range.size)
+            graph.add_node(block.range.start_addr,
+                           bytes=base64.b64encode(self.bytes(block.range.start, block.range.size)),
+                           heads=src[0], mnems=src[1], disasms=src[2], norms=src[3])
 
             for pred in block.preds:
                 graph.add_edge(pred.range.start_addr, block.range.start_addr)

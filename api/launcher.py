@@ -37,7 +37,7 @@ class Launcher:
         self._pendingTasks = {}
         self._tmpFiles = {}
         self._pingEvents = {}
-        self._idaReceiver = SimpleXMLRPCServer(("localhost", 0), allow_none=True)
+        self._idaReceiver = SimpleXMLRPCServer(("127.0.0.1", 0), allow_none=True)
         self._idaReceiver.register_function(self.ida_notify, "notify")
         self._idaReceiver.register_function(self.ida_ping, "ping")
         os.environ["DEOOP_IDA_RECEIVER_PORT"] = str(self._idaReceiver.server_address[1])
@@ -49,7 +49,7 @@ class Launcher:
     def __exit__(self, exc_type: Optional[Type[BaseException]], exc_inst: Optional[BaseException],
                  traceback: Optional[TracebackType]):
         for instance in self._instances.values():
-            url = f"http://localhost:{instance['ida']}/"
+            url = f"http://127.0.0.1:{instance['ida']}/"
             with xmlrpc.client.ServerProxy(url) as proxy:
                 proxy.shutdown()
         self._idaReceiver.shutdown()
@@ -122,7 +122,7 @@ class Launcher:
             match instance:
                 case "ida":
                     port = instances["ida"]
-                    url = f"http://localhost:{port}/"
+                    url = f"http://127.0.0.1:{port}/"
 
                     with xmlrpc.client.ServerProxy(url) as proxy:
                         if task:

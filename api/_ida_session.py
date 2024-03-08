@@ -24,11 +24,11 @@ class IDASession:
         self._handle = handle
         self._console = console
         self._receiverProxy = xmlrpc.client.ServerProxy(
-            f"http://localhost:{int(os.environ['DEOOP_IDA_RECEIVER_PORT'])}/")
+            f"http://127.0.0.1:{int(os.environ['DEOOP_IDA_RECEIVER_PORT'])}/")
         self._taskQueue = PriorityQueue()
         self._tasks = {}
 
-        with SimpleXMLRPCServer(("localhost", 0), allow_none=True) as server:
+        with SimpleXMLRPCServer(("127.0.0.1", 0), allow_none=True) as server:
             self.server = server
             server.timeout = 0.1
             server.register_function(self.enqueue_task, "enqueue_task")

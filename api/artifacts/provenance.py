@@ -1,4 +1,6 @@
 from api.artifacts.function import Function
+from compiler.types.compilation.compilation import CompilerOptions, ProduceCfgOptions
+from compiler.types.filters import ParseFiltersAndOutputOptions
 from compiler.types.languages import LanguageKey
 
 
@@ -14,6 +16,7 @@ class CompilerProvenance:
 
     def __init__(self, binary: str):
         self.binary = binary
+        self.compile_to_object = False
 
     @property
     def language(self):
@@ -28,12 +31,18 @@ class CompilerProvenance:
         return 1
 
     @property
+    def opt_level(self) -> int:
+        return 2
+
+    @property
     def arguments(self):
         return ["-fno-asm", "-g"]
 
     @property
     def options(self):
-        return {}
+        out = {"compilerOptions": CompilerOptions(produceCfg=ProduceCfgOptions(asm=True, ir=False)),
+               "filters": ParseFiltersAndOutputOptions(binaryObject=self.compile_to_object)}
+        return out
 
     @property
     def libraries(self):

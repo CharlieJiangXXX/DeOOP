@@ -29,6 +29,10 @@ class AddressRange:
         self.end = end
 
     @property
+    def size(self) -> int:
+        return self.end_addr - self.start_addr
+
+    @property
     def start_addr(self) -> int:
         return self.start.value
 

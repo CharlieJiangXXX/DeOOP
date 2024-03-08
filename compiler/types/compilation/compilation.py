@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Annotated, Literal, Dict, Callable, Any
+from typing import List, Optional, Annotated, Literal, Dict, Any
 from pydantic import BaseModel, Field
 
 from .cfg import CFGResult
@@ -166,7 +166,7 @@ class CompilationResult(BaseModel):
     buildResult: Optional['BuildResult'] = None
     buildsteps: Optional[List[BuildStep]] = None
     inputFilename: Optional[str] = None
-    asm: Optional[List[ResultLine]] = None
+    asm: Optional[List[ParsedAsmResultLine]] = None
     devices: Optional[Dict[str, 'CompilationResult']] = None
     stdout: List[ResultLine]
     stderr: List[ResultLine]
