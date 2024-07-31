@@ -26,9 +26,9 @@ class ProjectList(QWidget):
 
         projs = DataManager.instance().projects
         if not projs:
-            self._title = QLabel("Welcome to DeOOP")
+            self._title = QLabel("Welcome to Verbatim")
             self._desc = QLabel(
-                "DeOOP is a decompiler-agnostic psedocode augmentor and deobfuscator capable of producing "
+                "Verbatim is a decompiler-agnostic psedocode augmentor and deobfuscator capable of producing "
                 "semantically equivalent and readable C code from optimized binary with powerful language "
                 "models. Get started now!")
             self._title.setFont(QFont("Consolas", 15))

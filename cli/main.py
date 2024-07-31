@@ -1,4 +1,5 @@
 import asyncio
+import os.path
 import platform
 
 from cli.session import Session
@@ -7,24 +8,37 @@ from api.models.gpt import OpenAIGPT
 from config import config
 
 
-async def main():
-    with Launcher.instance() as launcher:
-        launcher.set_ida_path("C:\\Users\\Charlie Jiang.vv001\\Downloads\\IDA Pro 8.3.2\\IDA\\ida64.exe")
-        # cacheing objects like cfg should be done by session (read from file if exists)
-        simple_src = "C:\\Users\\Charlie Jiang.vv001\\Downloads\\challenges-2020\\c\\baby-c\\source.c"
-        simple = "C:\\Users\\Charlie Jiang.vv001\\Downloads\\challenges-2020\\c\\baby-c\\binary.out"
-        hard = "C:\\Users\\Charlie Jiang.vv001\\Desktop\\test\\mqcmiplugin.dll"
-        async with Session(simple_src, simple, ["ida"],
+class EvalBinary:
+    def __init__(self, path: str):
+        assert os.path.isdir(path)
+        self.name = os.path.basename(path)
+        self.bin = os.path.join(path, "bin.out")
+        self.src = os.path.join(path, "source.c")
+
+    async def eval(self):
+        async with Session(self.src, self.bin, ["ida"],
                            models=[OpenAIGPT("gpt-3.5-turbo", config.OPENAI_API_KEY)]) as session:
             await session.analyze_all()
 
-#from api.parser.parsers import AssemblyTextParser, Filter
 
-#parser = AssemblyTextParser()
-#with open("C:\\Users\\Charlie Jiang.vv001\\Desktop\\test_parser.txt") as f:
-#    parser.filter = Filter(unused_labels=True, library_functions=True, plt=True)
-#    parser.parse(f.read())
-#    parser.output_text()
+class Dataset:
+    def __init__(self, path: str):
+        assert os.path.isdir(path)
+        self.bins = [EvalBinary(os.path.join(path, entry)) for entry in os.listdir(path)]
+        self.bins = list(filter(lambda b: b.name in ['2020-bitesize'], self.bins))
+
+    async def eval(self):
+        for binary in self.bins:
+            await binary.eval()
+        # await asyncio.gather(*[binary.eval() for binary in bins])
+
+async def main():
+    with Launcher.instance() as launcher:
+        launcher.set_ida_path("C:\\Users\\Charlie Jiang.vv001\\Downloads\\IDA Pro 8.3.2\\IDA\\ida64.exe")
+        path = "C:\\Users\\Charlie Jiang.vv001\\PycharmProjects\\Verbatim\\datasets\\decompetition-c"
+        await Dataset(path).eval()
+        hard = "C:\\Users\\Charlie Jiang.vv001\\Desktop\\test\\mqcmiplugin.dll"
+
 
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

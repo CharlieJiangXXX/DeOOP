@@ -36,7 +36,7 @@ class CompilerProvenance:
 
     @property
     def arguments(self):
-        return ["-fno-asm", "-g"]
+        return [] # ["-fno-asm", "-g"]
 
     @property
     def options(self):

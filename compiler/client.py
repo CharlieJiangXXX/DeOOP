@@ -55,13 +55,14 @@ class AsyncCompilerClient:
         """Helper method for POST requests."""
         headers = {"Content-Type": "application/json",
                    "Accept": "application/json"}
-        async with self.session.post(self.BASE_URL + endpoint, data=data, headers=headers) as response:
-            try:
-                return await response.json()
-            except ContentTypeError:
-                # to-do: do actual error handling
-                print(await response.text())
-                raise Exception
+        while True:
+            async with self.session.post(self.BASE_URL + endpoint, data=data, headers=headers) as response:
+                try:
+                    return await response.json()
+                except ContentTypeError:
+                    # to-do: do actual error handling
+                    print(await response.text())
+                    await asyncio.sleep(10)
 
     @staticmethod
     def __specify_fields(fields: bool | List[str]) -> Dict:

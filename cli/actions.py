@@ -28,20 +28,6 @@
 
 
 
-# A C++ class method.
-CursorKind. = CursorKind(21)
-
-# A C++ namespace.
-CursorKind. = CursorKind(22)
-
-# A linkage specification, e.g. 'extern "C"'.
-CursorKind. = CursorKind(23)
-
-# A C++ constructor.
-CursorKind.CONSTRUCTOR = CursorKind(24)
-
-# A C++ destructor.
-CursorKind.DESTRUCTOR = CursorKind(25)
 
 # A C++ conversion function.
 CursorKind.CONVERSION_FUNCTION = CursorKind(26)

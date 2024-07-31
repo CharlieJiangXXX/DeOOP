@@ -37,7 +37,7 @@ class Launcher:
         self._pendingTasks = {}
         self._tmpFiles = {}
         self._pingEvents = {}
-        self._idaReceiver = SimpleXMLRPCServer(("127.0.0.1", 0), allow_none=True)
+        self._idaReceiver = SimpleXMLRPCServer(("127.0.0.1", 0), allow_none=True, logRequests=False)
         self._idaReceiver.register_function(self.ida_notify, "notify")
         self._idaReceiver.register_function(self.ida_ping, "ping")
         os.environ["DEOOP_IDA_RECEIVER_PORT"] = str(self._idaReceiver.server_address[1])

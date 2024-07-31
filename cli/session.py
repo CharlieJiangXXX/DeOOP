@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import copy
 import os
 import re
 import tempfile
@@ -12,8 +13,12 @@ import pyvex
 import networkx as nx
 from clang import cindex
 
-from typing import List, Optional, Tuple, Set
+from typing import List, Optional, Tuple, Set, Iterator
 from collections import Counter
+
+from pyvex import IRSB, stmt, expr
+from pyvex.stmt import IMark, AbiHint
+
 from api.artifacts.provenance import CompilerProvenance
 from compiler.types.compilation.cfg import CfgDescriptor
 from compiler.types.formatter import FormattingRequest
@@ -27,6 +32,7 @@ from compiler.client import AsyncCompilerClient
 from api.ida.interface import IDAInterface
 from api.isomorphism import mcisi
 from compiler.types.compilation.compilation import CompilationRequest, CompilationRequestOptions, CompilationResult
+import matplotlib.pyplot as plt
 
 arch_to_pyvex_arch_map = {
     'x86': archinfo.ArchX86(),
@@ -57,6 +63,40 @@ arch_to_pwntools_arch_map = {
     'mips64': 'mips64',
     'mips-64': 'mips64',
 }
+
+
+class IRSBWrapper:
+    def __init__(self, bb, cfg: nx.DiGraph):
+        self.cfg = cfg
+        self.bb = bb
+        self.irsb = cfg.nodes[bb]["irsb"]
+        self.num_imarks = 0
+        self.features = []
+        for s in self.irsb.statements:
+            if isinstance(s, IMark):
+                self.num_imarks += 1
+                continue
+            if isinstance(s, AbiHint):
+                continue
+            if isinstance(s, stmt.Put):
+                stmt_str = s.pp_str(
+                    reg_name=self.irsb.arch.translate_register_name(s.offset, s.data.result_size(self.irsb.tyenv) // 8)
+                )
+            elif isinstance(s, stmt.WrTmp) and isinstance(s.data, expr.Get):
+                stmt_str = s.pp_str(
+                    reg_name=self.irsb.arch.translate_register_name(s.data.offset, s.data.result_size(self.irsb.tyenv) // 8)
+                )
+            elif isinstance(s, stmt.Exit):
+                stmt_str = s.pp_str(reg_name=self.irsb.arch.translate_register_name(s.offsIP, self.irsb.arch.bits // 8))
+            else:
+                stmt_str = s.pp_str()
+            self.features.append(stmt_str)
+            # print(stmt_str)
+            # print(s.tag)
+            # print(list(s.expressions))
+
+    def __str__(self):
+        return str(self.irsb) + f"\nIMarks: {self.num_imarks}\n" + str(self.features)
 
 
 class Session:
@@ -123,9 +163,9 @@ class Session:
         if self._source:
             self._sourceAsm = (await self.compile_src()).asm
         self._controller = Decompiler(self._handle, self._supported)
-        self._dockerClient = docker.from_env()
-        if not self._dockerClient.images.list(name=self._dockerTag):
-            self._dockerClient.images.build(path=os.path.dirname(__file__), tag=self._dockerTag)
+        self._dockerClient = None # docker.from_env()
+        #if not self._dockerClient.images.list(name=self._dockerTag):
+        #    self._dockerClient.images.build(path=os.path.dirname(__file__), tag=self._dockerTag)
         self._projDir and self._controller.load_from_file(self._projDir)
         self.preprocess()
 
@@ -173,15 +213,35 @@ class Session:
         find_functions(tu.cursor)
         return functions
 
+    @staticmethod
+    def filter_pseudocode(pseudo: str) -> str:
+        removals = ["__fastcall", "__noreturn"]
+        replacements = {
+            "__int": "int",
+            "_QWORD": "int64",
+            "_DWORD": "int32",
+            "_WORD": "int16",
+            "_BYTE": "int8"
+        }
+
+        ignore_case = False
+        re_mode = re.IGNORECASE if ignore_case else 0
+
+        def normalize_old(s):
+            return s.lower() if ignore_case else s
+
+        replacements = {normalize_old(key): val for key, val in replacements.items()}
+        replacements.update({key: "" for key in removals})
+        rep_escaped = map(re.escape, sorted(replacements, key=len, reverse=True))
+        pattern = re.compile("|".join(rep_escaped), re_mode)
+        return pattern.sub(lambda match: replacements[normalize_old(match.group(0))], pseudo)
+
     async def analyze_all(self):
         ida_interface: IDAInterface = self._controller.interfaces["ida"]
         for scc in ida_interface.sccs:
             # do some scc processing shit
             for function in scc:
                 await self._analyze_func(function)
-
-    def similar(self):
-        pass
 
     async def _analyze_func(self, function: Function) -> bool:
         if function.external:
@@ -192,6 +252,7 @@ class Session:
                 or self._source and function.name not in self.functions_in_src:
             return True
 
+        function.pseudocode = self.filter_pseudocode(function.pseudocode)
         target_cfg = self.extract_vex(self._controller.interfaces["ida"].cfg(function), function)
         while True:
             code, result = await self.compile(function)
@@ -213,32 +274,51 @@ class Session:
                         src_lines = data["src"].split("\n")
                         target_lines = nodes[i].label.split("\n")
 
+                        # try to document this!
+
                         # strip label
                         label = src_lines[0]
-                        src_lines = src_lines[1:]
+                        num_src_lines = len(src_lines) - 1
                         target_lines = target_lines[1:]
 
-                        if len(target_lines) - len(src_lines) > 0:
-                            nodes[i].label = "\n".join([label] + target_lines[len(src_lines):])
-                            target_lines = target_lines[:len(src_lines)]
-                        else:
-                            i += 1
+                        target_cut = 0
+                        if len(target_lines) > num_src_lines:
+                            target_cut = len(target_lines) - num_src_lines
+                            nodes[i].label = "\n".join([label] + target_lines[num_src_lines:])
+                            target_lines = target_lines[:num_src_lines]
 
                         def _strip(s):
                             return re.sub(r'\s+', '', s)
 
-                        for line in target_lines:
-                            if _strip(line) == _strip(result.asm[j].text):
+                        k = 0
+                        while k < len(target_lines):
+                            if _strip(target_lines[k]) == _strip(result.asm[j].text):
                                 if "bytes" not in data:
                                     data["bytes"] = []
+                                if "src_lines" not in data:
+                                    data["src_lines"] = set()
                                 try:
                                     data["bytes"].extend(result.asm[j].opcodes)
+                                    data["src_lines"].add(result.asm[j].source.line)
                                 except:
-                                    # handle function calls!
+                                    # Handle function calls!
                                     # call   43 <main+0x43>
                                     # R_X86_64_PLT32 exit-0x4
-                                    print(result.asm[j])
+                                    print(f"Removing extraneous line: {result.asm[j].text}")
+                                    target_lines.pop(k)
+                                    result.asm.pop(j)
+                                    if target_cut:
+                                        target_cut -= 1
+                                        label_parts = nodes[i].label.split('\n')
+                                        first_label = label_parts.pop(1)
+                                        nodes[i].label = "\n".join(label_parts)
+                                        target_lines.append(first_label)
+                                    continue
+                                k += 1
                                 j += 1
+
+                        if not target_cut:
+                            i += 1
 
                         find_offset_labels = r"<[^>]*\+0x[0-9a-fA-F]+>"
                         find_unprefixed_addr = r'(?<!0x)\b[0-9a-fA-F]+(?:\b|\Z)'
@@ -303,12 +383,14 @@ class Session:
         5. Please fix the following compilation errors in the source code: {compiler_error} {pseudocode} (iterative)
         """
 
+        # apply some basic macros to get rid of things like __fastcall, __noreturn, __int64, etc.
         # note: std headers may be included without resorting to "external libs", so we're good for now!
-        query = Query(system=["You are an expert reverse engineering capable of converting pseudocode into compilable "
+        query = Query(system=["You are an expert reverse engineer capable of converting pseudocode into compilable "
                               "C code. When you augment pseudocode based on error messages, you only fix the relevant "
                               "components since you like to be efficient."],
                       prompt="Please modify the source code so that these compilation errors would be resolved. Include"
-                             "all headers necessary for the types used."  # If the "
+                             "all headers necessary for the types used. If you are not sure how to resolve errors caused "
+                             "by a piece of code, please remove it, as well as all references to it recursively."  # If the "
                       # "errors are caused by missing headers, please explicitly out the name of the library in "
                       # "the first line of your response. Afterwards" 
                              "Output the modified function directly - NO EXPLANATION IS NEEDED!!! Don't mark up the code"
@@ -346,27 +428,31 @@ class Session:
 
         return cfg
 
+    def similarity(self, slines: List[str], tlines: List[str], mode: int = 1, match_threshold: float = 0.9999):
+        if mode:
+            sfreqs = Counter(slines)
+            tfreqs = Counter(tlines)
+            all_operations = set(sfreqs.keys()).union(set(tfreqs.keys()))
+            vector1 = np.array([sfreqs[op] if op in sfreqs else 0 for op in all_operations])
+            vector2 = np.array([tfreqs[op] if op in tfreqs else 0 for op in all_operations])
+            similarity = self.cosine_similarity(vector1, vector2)
+        else:
+            similarity = self.jaccard_similarity(set(slines), set(tlines))
+        if similarity > match_threshold:
+            return 1.0
+        return similarity
+
     def calculate_score_matrix(self, src: nx.DiGraph, target: nx.DiGraph, mode: int = 1, match_threshold: float = 0.9999):
-        # the initial scores rn are not the greatest, we gotta find a better way to extract syntactic
-        # info out of irsbs
         scores = {}
         for snode, sdata in src.nodes(data=True):
             for tnode, tdata in target.nodes(data=True):
                 slines = sdata["irsb"]._pp_str().split("\n")
                 tlines = tdata["irsb"]._pp_str().split("\n")
-                if mode:
-                    sfreqs = Counter(slines)
-                    tfreqs = Counter(tlines)
-                    all_operations = set(sfreqs.keys()).union(set(tfreqs.keys()))
-                    vector1 = np.array([sfreqs[op] if op in sfreqs else 0 for op in all_operations])
-                    vector2 = np.array([tfreqs[op] if op in tfreqs else 0 for op in all_operations])
-                    similarity = self.cosine_similarity(vector1, vector2)
-                else:
-                    similarity = self.jaccard_similarity(set(slines), set(tlines))
-                if similarity > match_threshold:
-                    similarity = 1.0
-                scores[(snode, tnode)] = similarity
+                scores[(snode, tnode)] = self.similarity(slines, tlines, mode, match_threshold)
         return scores
+
+    def check_bb_equivalence(self, irsb1, irsb2):
+        return True
 
     async def perfect(self, target_cfg: nx.DiGraph, current_cfg: nx.DiGraph, function: Function) -> bool:
         def find_nodes(file, node, depth=0):
@@ -376,6 +462,13 @@ class Session:
                 print('  ' * depth + f'{node.kind.name}: {node.spelling} | C code: {source_text}')
             for child in node.get_children():
                 find_nodes(file, child, depth + 1)
+
+        with tempfile.TemporaryFile(suffix='.c', delete=False, mode='w+t') as tmp_file:
+            tmp_file.write(function.pseudocode)
+        index = cindex.Index.create()
+        with open(tmp_file.name) as f:
+            tu = index.parse(f.name, args=self._compilerProvenance.arguments)
+            #find_nodes(f, tu.cursor)
 
         swapped = False
         g_size1, g_size2 = current_cfg.number_of_nodes(), target_cfg.number_of_nodes()
@@ -396,25 +489,195 @@ class Session:
 
             scores = self.calculate_score_matrix(cfg1, cfg2)
 
-        def pp(cfg):
-            for node, data in cfg.nodes(data=True):
-                print(node)
-                if "src" in data:
-                    print(data["src"])
-                if "disasms" in data:
-                    print(data["disasms"])
-                data["irsb"].pp()
-
         print("Finding MCISI...")
+        # nx.draw_planar(cfg1, with_labels=True)
+        # nx.draw_planar(cfg2, with_labels=True)
         ret, result, score, size = mcisi(cfg1, cfg2, g_size1, scores)
         if not ret:
             return False
         print(f'[*] score: {score}, size: {size}')
 
         keys = result.keys()
-        matchings = {k: v for k, v in (keys if swapped else list(map(lambda x: (x[1], x[0]), keys)))}
-        unmatched_target = list(filter(lambda node: node not in matchings.keys(), target_cfg.nodes))
-        redundant_src = list(filter(lambda node: node not in matchings.values(), current_cfg.nodes))
+        matchings = {v: k for k, v in keys} if swapped else dict(keys)  # src -> target
+
+        unmatched_target = list(filter(lambda node: node not in matchings.values(), target_cfg.nodes))
+        redundant_src = list(filter(lambda node: node not in matchings.keys(), current_cfg.nodes))
+        print(f"unmatched: {len(unmatched_target)}, redundant: {len(redundant_src)}")
+
+        print(function.pseudocode)
+        func_lines = function.pseudocode.split("\n")
+
+        def pp_node(node, cfg):
+            print(node)
+            data = cfg.nodes[node]
+            """
+            if "src" in data:
+                print(data["src"])
+            if "disasms" in data:
+                print(data["disasms"])
+            print(data["airsb"])
+            """
+            if "src_lines" in data:
+                src_lines = [func_lines[line - 1] for line in sorted(data["src_lines"])]
+                print(src_lines)
+            """
+            print(f"Predecessors: {list(cfg.predecessors(node))}")
+            print(f"Successors: {list(cfg.successors(node))}")
+            """
+
+        for source, target in matchings.items():
+            current_cfg.nodes[source]["airsb"] = IRSBWrapper(source, current_cfg)
+            target_cfg.nodes[target]["airsb"] = IRSBWrapper(target, target_cfg)
+            #ret, diff = self.check_bb_equivalence(source, target)
+            #if ret:
+            #    continue
+            #print("-------")
+            #pp_node(source, current_cfg)
+            #pp_node(target, target_cfg)
+            # get the correspond range of lines
+            # provide the two asms
+
+            # TO-DO: symbolic exeuction
+            # parse ast
+
+        # Establish preliminary pairings between unmatched target nodes and redundant source nodes
+        def _score(t, s):
+            pred1 = list(target_cfg.predecessors(t))
+            succ1 = list(target_cfg.successors(t))
+            pred2 = list(current_cfg.predecessors(s))
+            succ2 = list(current_cfg.successors(s))
+
+            num_preds = sum(1 for a, b in zip(pred1, pred2) if a == matchings.get(b, None))
+            num_succs = sum(1 for a, b in zip(succ1, succ2) if a == matchings.get(b, None))
+
+            current_cfg.nodes[s]["airsb"] = IRSBWrapper(s, current_cfg)
+            similarity = self.similarity(target_cfg.nodes[t]["airsb"].features,
+                                         current_cfg.nodes[s]["airsb"].features,
+                                         0)
+            return float(num_preds * 0.3) + float(num_succs * 0.3) + float(similarity * 0.4)
+
+        pseudo_matchings = {}
+        remaining_target = []
+        for target in unmatched_target:
+            target_cfg.nodes[target]["airsb"] = IRSBWrapper(target, target_cfg)
+            if candidate := max(redundant_src, key=lambda x: _score(target, x), default=None):
+                pseudo_matchings[candidate] = target
+                redundant_src.remove(candidate)
+            else:
+                remaining_target.append(target)
+
+        # are optimized cfgs always going to have disjoint basic blocks?
+        # otherwise,
+        #
+
+        # idea: wrap each bb into a function to create some sort of scaffolding for the function
+
+        def irsb_trimmed_back(irsb: IRSBWrapper, imark: int):
+            print(f"Total: {irsb.num_imarks}; trim: {imark}")
+            if imark <= 0:
+                return irsb
+            irsb = copy.deepcopy(irsb)
+            idx = 0
+            trimmed = 0
+            while imark >= 0 and idx < len(irsb.irsb.statements):
+                if isinstance(irsb.irsb.statements[idx], IMark):
+                    trimmed += 1
+                    imark -= 1
+                idx += 1
+            irsb.features = irsb.features[idx - trimmed:]
+            return irsb
+
+        def irsb_trimmed_front(irsb: IRSBWrapper, imark: int):
+            print(f"Total: {irsb.num_imarks}; trim: {imark}")
+            if imark <= 0:
+                return irsb
+            irsb = copy.deepcopy(irsb)
+            cnt = irsb.num_imarks - imark
+            idx = 0
+            trimmed = 0
+            while cnt >= 0 and idx < len(irsb.irsb.statements):
+                if isinstance(irsb.irsb.statements[idx], IMark):
+                    trimmed += 1
+                    cnt -= 1
+                idx += 1
+            irsb.features = irsb.features[:idx - trimmed]
+            return irsb
+
+        # maybe even consider splitting blocks into 3+ parts
+
+        #for s, t in {**matchings, **pseudo_matchings}.items():
+        #    print("----")
+        #    pp_node(s, current_cfg)
+        #    pp_node(t, target_cfg)
+
+        print(f"remaining: {remaining_target}")
+        if remaining_target:
+            pos = nx.spring_layout(target_cfg)  # positions for all nodes
+            nx.draw(target_cfg, pos, with_labels=True, node_color='skyblue', node_size=700, edge_color='k',
+                    linewidths=1, font_size=15, arrows=True)
+            plt.show()
+
+            pos = nx.spring_layout(current_cfg)  # positions for all nodes
+            nx.draw(current_cfg, pos, with_labels=True, node_color='skyblue', node_size=700, edge_color='k',
+                    linewidths=1, font_size=15, arrows=True)
+            plt.show()
+            all_matchings = {**matchings, **pseudo_matchings}
+            inverted_matchings = {v: k for k, v in all_matchings.items()}
+            print(all_matchings)
+
+        for target in remaining_target:
+            # if delete is non-empty, potentially add stuff from there
+            # try to cut some other nodes if possible, otherwise add
+            max_nodes = 3
+            threshold = 0.5
+            target_airsb = target_cfg.nodes[target]["airsb"]
+
+            # Sort all matched pairs by the similarity between the number of excess
+            # IMarks in s over t and the number of IMarks in the target. Consider the
+            # top n nodes, and fetch the relevant statements based on the current
+            # strategy. Strategy 1: always cut from back
+            # to-do: generalize
+            top_matches = [
+                irsb_trimmed_front(current_cfg.nodes[s]["airsb"], target_cfg.nodes[t]["airsb"].num_imarks)
+                for s, t in sorted(
+                    ((s, t) for s, t in all_matchings.items()),
+                    key=lambda x: abs(target_airsb.num_imarks
+                                      - current_cfg.nodes[x[0]]["airsb"].num_imarks
+                                      + target_cfg.nodes[x[1]]["airsb"].num_imarks)
+                )[:max_nodes]
+            ]
+
+            # Calculate similarity and pick best match
+            scores = [(x, self.similarity(x.features, target_airsb.features)) for x in top_matches if x.features]
+            # Find the item with the maximum similarity score.
+            match, max_score = max(scores, key=lambda x: x[1], default=None)
+
+            # here we are trying to move the trimmed part of the matched node to a target location
+            # since the target does not yet exist, we may only approximate its location by looking at its preds
+            # and succs, which should be mapped
+
+            print(match.features, max_score, target_airsb.features)
+            pp_node(match.bb, match.cfg)
+            print("printing predecessors of target")
+            for pred in target_cfg.predecessors(target):
+                pp_node(inverted_matchings[pred], current_cfg)
+            for succ in target_cfg.successors(target):
+                pp_node(inverted_matchings[succ], current_cfg)
+
+            if max_score < threshold:
+                print("add from scratch")
+
+            # if similarity is lower than a threshold t, ask the model to add from scratch
+            # otherwise backtrack to find the node number and prompt model to cut
+
+        if redundant_src:
+            # try to merge these nodes with other matched nodes
+            print('gotta delete some nodes')
+
+        # 3. adjust connectivity
+
+        return True
+        #raise Exception("we gotta stop here fam")
 
         # we need pairings from bbs back to c
 
@@ -497,16 +760,6 @@ class Session:
         reached.
         :return: bool
         """
-        # if asm == "\n".join(line.asm for line in function.lines):
-        #    return True
-
-        with tempfile.TemporaryFile(suffix='.c', delete=False, mode='w+t') as tmp_file:
-            tmp_file.write(function.pseudocode)
-        index = cindex.Index.create()
-        with open(tmp_file.name) as f:
-            tu = index.parse(f.name, args=self._compilerProvenance.arguments)
-            find_nodes(f, tu.cursor)
-        return True
 
 # By supposition, we have the original compilable asm and all compiler settings.
 # Say we have now corrected all compilation errors in the target pseudocode, which

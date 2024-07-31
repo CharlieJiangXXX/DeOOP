@@ -28,7 +28,7 @@ class IDASession:
         self._taskQueue = PriorityQueue()
         self._tasks = {}
 
-        with SimpleXMLRPCServer(("127.0.0.1", 0), allow_none=True) as server:
+        with SimpleXMLRPCServer(("127.0.0.1", 0), allow_none=True, logRequests=False) as server:
             self.server = server
             server.timeout = 0.1
             server.register_function(self.enqueue_task, "enqueue_task")

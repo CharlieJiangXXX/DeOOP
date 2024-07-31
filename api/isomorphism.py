@@ -3,6 +3,7 @@ import time
 from typing import Dict, Tuple, Any, List, Optional
 
 import networkx as nx
+import angr
 
 score_same_inst = 1.00  # debin previously has 0.9
 score_same_stp = 0.85
@@ -37,6 +38,10 @@ Matches = Dict[Tuple[Any, Any], float]
 
 
 class IsoTimeout(Exception):
+    pass
+
+
+class IsoEarlyDiscovery(Exception):
     pass
 
 
@@ -78,8 +83,6 @@ class SubgraphIsomorphismFinder:
 
     def weighted_score(self, node1, node2, score):
         if use_connectivity_factors:
-            self.source_graph.predecessors(node1)
-
             pred1 = len(list(self.source_graph.predecessors(node1)))
             succ1 = len(list(self.source_graph.successors(node1)))
             pred2 = len(list(self.target_graph.predecessors(node2)))
@@ -101,7 +104,7 @@ class SubgraphIsomorphismFinder:
     def unmatched(self) -> Dict[Any, List[Tuple[Any, float]]]:
         # all remaining unmatched target nodes
         possible = [id for id in self.target_graph.nodes if not get_match(id, self.result, 1)]
-        print(f"Number of remaining unmatched nodes: {len(possible)}")
+        #print(f"Number of remaining unmatched nodes: {len(possible)}")
         ret = {}
 
         for source in self.source_graph.nodes:
@@ -159,10 +162,10 @@ class SubgraphIsomorphismFinder:
 
     def refine(self, unmatched, source, target):
         assert source
-        pred1 = self.source_graph.predecessors(source)
-        succ1 = self.source_graph.successors(source)
-        pred2 = self.target_graph.predecessors(target) if target else []
-        succ2 = self.target_graph.successors(target) if target else []
+        pred1 = list(self.source_graph.predecessors(source))
+        succ1 = list(self.source_graph.successors(source))
+        pred2 = list(self.target_graph.predecessors(target)) if target else []
+        succ2 = list(self.target_graph.successors(target)) if target else []
 
         refined_unmatched = {}
         for id1, candidates in unmatched.items():
@@ -171,29 +174,22 @@ class SubgraphIsomorphismFinder:
                 # the matched points must both precede or succeed any remaining possible matches
                 # if new2 is null, then both any(test2) and any(test4) would be false. Hence
                 # all pairs that have new1 as a predecessor or successor would be excluded
-                candidates = [
-                    (id2, id_score) for id2, id_score in candidates
-                    if id2 != target and
-                       (any(test1 == id1 for test1 in pred1) ==
-                        any(test2 == id2 for test2 in pred2)) and
-                       (any(test3 == id1 for test3 in succ1) ==
-                        any(test4 == id2 for test4 in succ2))
-                ]
-                if candidates:
-                    refined_unmatched[id1] = candidates
+                id1_pred = id1 in pred1
+                id1_succ = id1 in succ1
+                if new_candidates := list(filter(
+                        lambda x: x[0] != target and id1_pred == (x[0] in pred2) and id1_succ == (x[0] in succ2),
+                        candidates)):
+                    refined_unmatched[id1] = new_candidates
 
         return refined_unmatched
 
     def extendable(self, unmatched, matched: Matches, ideal_score):
-        if not unmatched:
-            return False
-
         matched_size = len(matched)
         matched_score_sum, candidates_score_sum = 0.0, 0.0
 
         for node in self.source_graph.nodes:
-            if len(unmatched.get(node, [])) == 1:  # matched
-                matched_score_sum += unmatched[node][0][1]
+            if match := get_match(node, matched, 0):
+                matched_score_sum += match[1]
             else:
                 candidates_score_sum += unmatched.get(node, [(None, 0.0)])[0][1]  # highest candidate score
 
@@ -202,28 +198,32 @@ class SubgraphIsomorphismFinder:
             self.max_subgraph_size = matched_size
             self.current_best_score = matched_score_sum
 
-        return matched_score_sum + candidates_score_sum < ideal_score
+        if matched_score_sum + candidates_score_sum < ideal_score and matched_size < self.source_size:
+            return True
+        raise IsoEarlyDiscovery()
 
     def _search(self, unmatched, matched, start_time, query_cnt, init_size, ideal_score):
         query_cnt = query_cnt + 1
         end_time = time.time()
-        if (end_time - start_time) > self.timeout_value:
+        if end_time - start_time > self.timeout_value:
             print(
                 f"timeout({end_time} - {start_time} > {self.timeout_value}): init_size={init_size} ret_size={self.max_subgraph_size}")
             raise IsoTimeout()
 
         if self.extendable(unmatched, matched, ideal_score):
             if source := self.pick_any(unmatched):
-                print(f"Picking {source}")
+                #print(f"Picking {source}")
                 for candidate, score in unmatched[source]:
                     matched1 = copy.deepcopy(matched)
                     matched1[(source, candidate)] = score
-                    print(f"[{query_cnt}] Adding ({source}, {candidate}) to matched")
-                    print_matched(matched1)  # Assuming `print_matched` is defined elsewhere
-                    query_cnt = self._search(self.refine(unmatched, source, candidate), matched1, start_time, query_cnt, init_size, ideal_score)
+                    #print(f"[{query_cnt}] Adding ({source}, {candidate}) to matched")
+                    #print_matched(matched1)
+                    query_cnt = self._search(self.refine(unmatched, source, candidate), matched1, start_time, query_cnt,
+                                             init_size, ideal_score)
                 matched2 = copy.deepcopy(matched)
-                print(f"[{query_cnt}] Removing {source} from d")
-                query_cnt = self._search(self.refine(unmatched, source, None), matched2, start_time, query_cnt, init_size, ideal_score)
+                #print(f"[{query_cnt}] Removing {source} from d")
+                query_cnt = self._search(self.refine(unmatched, source, None), matched2, start_time, query_cnt,
+                                         init_size, ideal_score)
 
         if query_cnt > self.max_queries:
             print(
@@ -233,19 +233,17 @@ class SubgraphIsomorphismFinder:
         return query_cnt
 
     def run(self):
-        init_size = int(self.max_size_ratio * self.source_size)
+        init_size = int(self.max_size_ratio * self.source_size) or 1
         ideal_score = get_max_score(init_size, self.max_score_ratio)  # Assuming get_max_score is defined elsewhere
 
-        print_matched(self.result)
+        #print_matched(self.result)
         unmatched = self.unmatched
         to_start = time.time()
 
         try:
             self._search(unmatched, {}, to_start, 0, init_size, ideal_score)
             if self.max_subgraph_size > 0:
-                print("[*] MCISI found!\n")
-                print_matched(self.result)
-                return True
+                raise IsoEarlyDiscovery()
             print("[!] Retrying MCISI with lowered size ratio\n")
             self.result = {}
             self.max_size_ratio -= max_size_step
@@ -257,6 +255,10 @@ class SubgraphIsomorphismFinder:
                 self.max_size_ratio = 0.0
                 self.max_score_ratio = 0.0
                 return self.run()
+        except IsoEarlyDiscovery:
+            print("[*] MCISI found!\n")
+            print_matched(self.result)
+            return True
         return False
 
 
